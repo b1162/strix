@@ -34,6 +34,7 @@ class TuiLiveView:
         statuses = agents_data.get("statuses") or {}
         names = agents_data.get("names") or {}
         parent_of = agents_data.get("parent_of") or {}
+        metadata = agents_data.get("metadata") or {}
         if not isinstance(statuses, dict):
             return
         for agent_id, status in statuses.items():
@@ -44,6 +45,7 @@ class TuiLiveView:
                 name=names.get(agent_id, agent_id) if isinstance(names, dict) else agent_id,
                 parent_id=parent_of.get(agent_id) if isinstance(parent_of, dict) else None,
                 status=str(status),
+                metadata=metadata.get(agent_id) if isinstance(metadata, dict) else None,
             )
         self._hydrate_sdk_session_history(run_dir, statuses.keys())
 
@@ -63,6 +65,7 @@ class TuiLiveView:
         parent_id: str | None = None,
         status: str | None = None,
         error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         now = datetime.now(UTC).isoformat()
         current = self.agents.setdefault(
@@ -74,6 +77,7 @@ class TuiLiveView:
                 "status": status or "running",
                 "created_at": now,
                 "updated_at": now,
+                "metadata": {},
             },
         )
         if name is not None:
@@ -84,6 +88,8 @@ class TuiLiveView:
             current["status"] = status
         if error_message:
             current["error_message"] = error_message
+        if metadata is not None:
+            current["metadata"] = metadata
         current["updated_at"] = now
 
     def record_user_message(self, agent_id: str, content: str) -> None:

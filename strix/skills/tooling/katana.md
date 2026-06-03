@@ -54,8 +54,8 @@ Common patterns:
 Critical correctness rules:
 - `-kf` must be followed by one of `all`, `robotstxt`, or `sitemapxml`.
 - Use documented `-hl` for headless mode.
-- `-proxy` expects a single proxy URL string (for example `http://127.0.0.1:8080`).
-- `-ho` expects comma-separated Chrome options (example: `-ho --disable-gpu,proxy-server=http://127.0.0.1:8080`).
+- `-proxy` expects a single proxy URL string (for example `http://127.0.0.1:48080`).
+- `-ho` expects comma-separated Chrome options (example: `-ho --disable-gpu,proxy-server=http://127.0.0.1:48080`).
 - For `-kf`, keep depth at least `-d 3` so known files are fully covered.
 - If writing to a file, ensure parent directory exists before `-o`.
 

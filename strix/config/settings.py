@@ -61,6 +61,13 @@ class IntegrationSettings(BaseSettings):
     perplexity_api_key: str | None = Field(default=None, alias="PERPLEXITY_API_KEY")
 
 
+class MemorySettings(BaseSettings):
+    model_config = _BASE_CONFIG
+
+    unified: bool = Field(default=False, alias="STRIX_UNIFIED_MEMORY")
+    base_dir: str = Field(default="~/.strix", alias="STRIX_MEMORY_DIR")
+
+
 class Settings(BaseSettings):
     model_config = _BASE_CONFIG
 
@@ -68,3 +75,4 @@ class Settings(BaseSettings):
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     integrations: IntegrationSettings = Field(default_factory=IntegrationSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)

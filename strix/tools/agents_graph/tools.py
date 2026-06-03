@@ -87,7 +87,7 @@ async def view_agent_graph(ctx: RunContextWrapper) -> str:
             default=str,
         )
 
-    parent_of, statuses, names = await coordinator.graph_snapshot()
+    parent_of, statuses, names, _ = await coordinator.graph_snapshot()
 
     lines: list[str] = []
 
@@ -357,6 +357,7 @@ async def create_agent(
     task: str,
     inherit_context: bool = True,
     skills: list[str] | None = None,
+    timeout_seconds: int = 600,
 ) -> str:
     """Spawn a specialist child agent to run in parallel.
 
@@ -397,6 +398,7 @@ async def create_agent(
             when starting a clean-slate task.
         skills: List of skill names (e.g. ``["xss", "sql_injection"]``).
             Max 5; prefer 1-3.
+        timeout_seconds: Hard execution limit in seconds (default 600).
     """
     inner = _ctx(ctx)
     coordinator = coordinator_from_context(inner)
@@ -436,6 +438,7 @@ async def create_agent(
             task=task,
             skills=skill_list,
             parent_history=parent_history,
+            timeout_seconds=timeout_seconds,
         )
     except Exception as e:
         logger.exception("create_agent: scan runner failed to spawn child '%s'", name)
@@ -622,7 +625,7 @@ async def stop_agent(
             ensure_ascii=False,
             default=str,
         )
-    _, statuses, _ = await coordinator.graph_snapshot()
+    _, statuses, _, _ = await coordinator.graph_snapshot()
     if target_agent_id not in statuses:
         return json.dumps(
             {"success": False, "error": f"Unknown agent_id: {target_agent_id}"},

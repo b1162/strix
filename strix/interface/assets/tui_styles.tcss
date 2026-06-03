@@ -685,3 +685,55 @@ HelpScreen {
     background: transparent;
     text-style: none;
 }
+
+#tui_tabs {
+    height: 1fr;
+    background: transparent;
+}
+
+#vulns_tab_container {
+    height: 100%;
+    width: 100%;
+    layout: horizontal;
+    background: transparent;
+}
+
+#vulns_tab_list {
+    width: 30%;
+    height: 100%;
+    border-right: solid #333333;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+#vulns_tab_list ListItem {
+    padding: 1 2;
+    background: transparent;
+    color: #d4d4d4;
+    border-bottom: solid #1a1a1a;
+}
+
+#vulns_tab_list ListItem:hover {
+    background: #1a1a1a;
+    color: #fafaf9;
+}
+
+#vulns_tab_list ListItem.-active {
+    background: #22c55e 20%;
+    color: #ffffff;
+    border-left: solid #22c55e;
+}
+
+#vulns_tab_markdown_container {
+    width: 70%;
+    height: 100%;
+    padding: 1 2;
+    background: transparent;
+}
+
+#vulns_tab_markdown {
+    background: transparent;
+    color: #d4d4d4;
+    padding: 0;
+}

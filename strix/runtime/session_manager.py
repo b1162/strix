@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # In-container Caido sidecar port (matches the image's caido-cli bind).
 _CONTAINER_CAIDO_PORT = 48080
+_CONTAINER_CAIDO_PROXY_PORT = 8080
 
 
 _SESSION_CACHE: dict[str, dict[str, Any]] = {}
@@ -54,15 +56,16 @@ async def create_or_reuse(
     # agent-browser CDP daemon's localhost traffic from looping back
     # through Caido.
     container_caido_url = f"http://127.0.0.1:{_CONTAINER_CAIDO_PORT}"
+    container_caido_proxy_url = f"http://127.0.0.1:{_CONTAINER_CAIDO_PORT}"
     manifest = Manifest(
         entries=entries,
         environment=Environment(
             value={
                 "PYTHONUNBUFFERED": "1",
                 "HOST_GATEWAY": "host.docker.internal",
-                "http_proxy": container_caido_url,
-                "https_proxy": container_caido_url,
-                "ALL_PROXY": container_caido_url,
+                "http_proxy": container_caido_proxy_url,
+                "https_proxy": container_caido_proxy_url,
+                "ALL_PROXY": container_caido_proxy_url,
                 "NO_PROXY": "localhost,127.0.0.1",
             },
         ),
@@ -80,7 +83,7 @@ async def create_or_reuse(
     client, session = await backend(
         image=image,
         manifest=manifest,
-        exposed_ports=(_CONTAINER_CAIDO_PORT,),
+        exposed_ports=(_CONTAINER_CAIDO_PORT, _CONTAINER_CAIDO_PROXY_PORT),
     )
 
     caido_endpoint = await session.resolve_exposed_port(_CONTAINER_CAIDO_PORT)
@@ -114,6 +117,20 @@ async def cleanup(scan_id: str) -> None:
     bundle = _SESSION_CACHE.pop(scan_id, None)
     if bundle is None:
         logger.debug("cleanup(%s): no cached session", scan_id)
+        return
+
+    keep_container = (
+        os.environ.get("STRIX_KEEP_CONTAINER") in ("1", "true", "TRUE")
+        or os.environ.get("STRIX_KEEP_SANDBOX") in ("1", "true", "TRUE")
+    )
+    if keep_container:
+        logger.info("Keeping sandbox container alive for scan %s", scan_id)
+        caido_client = bundle.get("caido_client")
+        if caido_client is not None:
+            try:
+                await caido_client.aclose()
+            except Exception:  # noqa: BLE001
+                logger.debug("cleanup(%s): caido_client.aclose() raised", scan_id, exc_info=True)
         return
 
     caido_client = bundle.get("caido_client")

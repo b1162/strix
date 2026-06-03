@@ -27,7 +27,18 @@ from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static, TextArea, Tree
+from textual.widgets import (
+    Button,
+    Label,
+    ListItem,
+    ListView,
+    Markdown,
+    Static,
+    TabbedContent,
+    TabPane,
+    TextArea,
+    Tree,
+)
 from textual.widgets.tree import TreeNode
 
 from strix.config import load_settings
@@ -261,6 +272,103 @@ class StopAgentScreen(ModalScreen):  # type: ignore[misc]
             self.app.action_confirm_stop_agent(self.agent_id)
 
 
+def build_vulnerability_markdown(vuln: dict[str, Any]) -> str:
+    """Generate full markdown report for a vulnerability."""
+    lines: list[str] = []
+
+    title = vuln.get("title", "Untitled Vulnerability")
+    lines.append(f"# {title}")
+    lines.append("")
+
+    if vuln.get("id"):
+        lines.append(f"**ID:** {vuln['id']}")
+    if vuln.get("severity"):
+        lines.append(f"**Severity:** {vuln['severity'].upper()}")
+    if vuln.get("timestamp"):
+        lines.append(f"**Found:** {vuln['timestamp']}")
+    if vuln.get("agent_name"):
+        lines.append(f"**Agent:** {vuln['agent_name']}")
+    if vuln.get("target"):
+        lines.append(f"**Target:** {vuln['target']}")
+    if vuln.get("endpoint"):
+        lines.append(f"**Endpoint:** {vuln['endpoint']}")
+    if vuln.get("method"):
+        lines.append(f"**Method:** {vuln['method']}")
+    if vuln.get("cve"):
+        lines.append(f"**CVE:** {vuln['cve']}")
+    if vuln.get("cvss") is not None:
+        lines.append(f"**CVSS:** {vuln['cvss']}")
+
+    cvss_breakdown = vuln.get("cvss_breakdown", {})
+    if cvss_breakdown:
+        abbrevs = {
+            "attack_vector": "AV",
+            "attack_complexity": "AC",
+            "privileges_required": "PR",
+            "user_interaction": "UI",
+            "scope": "S",
+            "confidentiality": "C",
+            "integrity": "I",
+            "availability": "A",
+        }
+        parts = [
+            f"{abbrevs.get(k, k)}:{v}" for k, v in cvss_breakdown.items() if v and k in abbrevs
+        ]
+        if parts:
+            lines.append(f"**CVSS Vector:** {'/'.join(parts)}")
+
+    lines.append("")
+    lines.append("## Description")
+    lines.append("")
+    lines.append(vuln.get("description") or "No description provided.")
+
+    if vuln.get("impact"):
+        lines.extend(["", "## Impact", "", vuln["impact"]])
+
+    if vuln.get("technical_analysis"):
+        lines.extend(["", "## Technical Analysis", "", vuln["technical_analysis"]])
+
+    if vuln.get("poc_description") or vuln.get("poc_script_code"):
+        lines.extend(["", "## Proof of Concept", ""])
+        if vuln.get("poc_description"):
+            lines.append(vuln["poc_description"])
+            lines.append("")
+        if vuln.get("poc_script_code"):
+            lines.append("```python")
+            lines.append(vuln["poc_script_code"])
+            lines.append("```")
+
+    if vuln.get("code_locations"):
+        lines.extend(["", "## Code Analysis", ""])
+        for i, loc in enumerate(vuln["code_locations"]):
+            file_ref = loc.get("file", "unknown")
+            line_ref = ""
+            if loc.get("start_line") is not None:
+                if loc.get("end_line") and loc["end_line"] != loc["start_line"]:
+                    line_ref = f" (lines {loc['start_line']}-{loc['end_line']})"
+                else:
+                    line_ref = f" (line {loc['start_line']})"
+            lines.append(f"**Location {i + 1}:** `{file_ref}`{line_ref}")
+            if loc.get("label"):
+                lines.append(f"  {loc['label']}")
+            if loc.get("snippet"):
+                lines.append(f"```\n{loc['snippet']}\n```")
+            if loc.get("fix_before") or loc.get("fix_after"):
+                lines.append("**Suggested Fix:**")
+                lines.append("```diff")
+                if loc.get("fix_before"):
+                    lines.extend(f"- {line}" for line in loc["fix_before"].splitlines())
+                if loc.get("fix_after"):
+                    lines.extend(f"+ {line}" for line in loc["fix_after"].splitlines())
+                lines.append("```")
+            lines.append("")
+
+    if vuln.get("remediation_steps"):
+        lines.extend(["", "## Remediation", "", vuln["remediation_steps"]])
+
+    return "\n".join(lines)
+
+
 class VulnerabilityDetailScreen(ModalScreen):  # type: ignore[misc]
     SEVERITY_COLORS: ClassVar[dict[str, str]] = {
         "critical": "#dc2626",  # Red
@@ -458,101 +566,7 @@ class VulnerabilityDetailScreen(ModalScreen):  # type: ignore[misc]
 
     def _get_markdown_report(self) -> str:
         """Get Markdown version of vulnerability report for clipboard."""
-        vuln = self.vulnerability
-        lines: list[str] = []
-
-        title = vuln.get("title", "Untitled Vulnerability")
-        lines.append(f"# {title}")
-        lines.append("")
-
-        if vuln.get("id"):
-            lines.append(f"**ID:** {vuln['id']}")
-        if vuln.get("severity"):
-            lines.append(f"**Severity:** {vuln['severity'].upper()}")
-        if vuln.get("timestamp"):
-            lines.append(f"**Found:** {vuln['timestamp']}")
-        if vuln.get("agent_name"):
-            lines.append(f"**Agent:** {vuln['agent_name']}")
-        if vuln.get("target"):
-            lines.append(f"**Target:** {vuln['target']}")
-        if vuln.get("endpoint"):
-            lines.append(f"**Endpoint:** {vuln['endpoint']}")
-        if vuln.get("method"):
-            lines.append(f"**Method:** {vuln['method']}")
-        if vuln.get("cve"):
-            lines.append(f"**CVE:** {vuln['cve']}")
-        if vuln.get("cvss") is not None:
-            lines.append(f"**CVSS:** {vuln['cvss']}")
-
-        cvss_breakdown = vuln.get("cvss_breakdown", {})
-        if cvss_breakdown:
-            abbrevs = {
-                "attack_vector": "AV",
-                "attack_complexity": "AC",
-                "privileges_required": "PR",
-                "user_interaction": "UI",
-                "scope": "S",
-                "confidentiality": "C",
-                "integrity": "I",
-                "availability": "A",
-            }
-            parts = [
-                f"{abbrevs.get(k, k)}:{v}" for k, v in cvss_breakdown.items() if v and k in abbrevs
-            ]
-            if parts:
-                lines.append(f"**CVSS Vector:** {'/'.join(parts)}")
-
-        lines.append("")
-        lines.append("## Description")
-        lines.append("")
-        lines.append(vuln.get("description") or "No description provided.")
-
-        if vuln.get("impact"):
-            lines.extend(["", "## Impact", "", vuln["impact"]])
-
-        if vuln.get("technical_analysis"):
-            lines.extend(["", "## Technical Analysis", "", vuln["technical_analysis"]])
-
-        if vuln.get("poc_description") or vuln.get("poc_script_code"):
-            lines.extend(["", "## Proof of Concept", ""])
-            if vuln.get("poc_description"):
-                lines.append(vuln["poc_description"])
-                lines.append("")
-            if vuln.get("poc_script_code"):
-                lines.append("```python")
-                lines.append(vuln["poc_script_code"])
-                lines.append("```")
-
-        if vuln.get("code_locations"):
-            lines.extend(["", "## Code Analysis", ""])
-            for i, loc in enumerate(vuln["code_locations"]):
-                file_ref = loc.get("file", "unknown")
-                line_ref = ""
-                if loc.get("start_line") is not None:
-                    if loc.get("end_line") and loc["end_line"] != loc["start_line"]:
-                        line_ref = f" (lines {loc['start_line']}-{loc['end_line']})"
-                    else:
-                        line_ref = f" (line {loc['start_line']})"
-                lines.append(f"**Location {i + 1}:** `{file_ref}`{line_ref}")
-                if loc.get("label"):
-                    lines.append(f"  {loc['label']}")
-                if loc.get("snippet"):
-                    lines.append(f"```\n{loc['snippet']}\n```")
-                if loc.get("fix_before") or loc.get("fix_after"):
-                    lines.append("**Suggested Fix:**")
-                    lines.append("```diff")
-                    if loc.get("fix_before"):
-                        lines.extend(f"- {line}" for line in loc["fix_before"].splitlines())
-                    if loc.get("fix_after"):
-                        lines.extend(f"+ {line}" for line in loc["fix_after"].splitlines())
-                    lines.append("```")
-                lines.append("")
-
-        if vuln.get("remediation_steps"):
-            lines.extend(["", "## Remediation", "", vuln["remediation_steps"]])
-
-        lines.append("")
-        return "\n".join(lines)
+        return build_vulnerability_markdown(self.vulnerability)
 
     def on_key(self, event: events.Key) -> None:
         if event.key == "escape":
@@ -579,6 +593,12 @@ class VulnerabilityItem(Static):  # type: ignore[misc]
     def on_click(self, _event: events.Click) -> None:
         """Handle click to open vulnerability detail."""
         self.app.push_screen(VulnerabilityDetailScreen(self.vuln_data))
+
+
+class VulnerabilityReportItem(ListItem):  # type: ignore[misc]
+    def __init__(self, vuln_data: dict[str, Any], label: Text, **kwargs: Any) -> None:
+        super().__init__(Static(label), **kwargs)
+        self.vuln_data = vuln_data
 
 
 class VulnerabilitiesPanel(VerticalScroll):  # type: ignore[misc]
@@ -764,7 +784,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         if self.show_splash:
             yield SplashScreen(id="splash_screen")
 
-    def watch_show_splash(self, show_splash: bool) -> None:
+    async def watch_show_splash(self, show_splash: bool) -> None:
         if not show_splash and self.is_mounted:
             try:
                 splash = self.query_one("#splash_screen")
@@ -773,11 +793,17 @@ class StrixTUIApp(App):  # type: ignore[misc]
                 pass
 
             main_container = Vertical(id="main_container")
+            await self.mount(main_container)
 
-            self.mount(main_container)
+            tabbed_content = TabbedContent(id="tui_tabs")
+            await main_container.mount(tabbed_content)
+
+            # Tab 1: Chat / Console
+            chat_pane = TabPane("Chat & Agents", id="chat_tab")
+            await tabbed_content.add_pane(chat_pane)
 
             content_container = Horizontal(id="content_container")
-            main_container.mount(content_container)
+            await chat_pane.mount(content_container)
 
             chat_area_container = Vertical(id="chat_area_container")
 
@@ -819,12 +845,30 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
             sidebar = Vertical(agents_tree, vulnerabilities_panel, stats_scroll, id="sidebar")
 
-            content_container.mount(chat_area_container)
-            content_container.mount(sidebar)
+            await content_container.mount(chat_area_container)
+            await content_container.mount(sidebar)
 
-            chat_area_container.mount(chat_history)
-            chat_area_container.mount(agent_status_display)
-            chat_area_container.mount(chat_input_container)
+            await chat_area_container.mount(chat_history)
+            await chat_area_container.mount(agent_status_display)
+            await chat_area_container.mount(chat_input_container)
+
+            # Tab 2: Vulnerabilities Database
+            vulns_tab_list = ListView(id="vulns_tab_list")
+            vulns_tab_markdown = Markdown(id="vulns_tab_markdown")
+            vulns_tab_markdown_container = VerticalScroll(
+                vulns_tab_markdown,
+                id="vulns_tab_markdown_container"
+            )
+
+            vulns_tab_container = Horizontal(
+                vulns_tab_list,
+                vulns_tab_markdown_container,
+                id="vulns_tab_container"
+            )
+
+            vulnerabilities_pane = TabPane("Vulnerabilities", id="vulnerabilities_tab")
+            await tabbed_content.add_pane(vulnerabilities_pane)
+            await vulnerabilities_pane.mount(vulns_tab_container)
 
             self.call_after_refresh(self._focus_chat_input)
 
@@ -920,7 +964,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
             else:
                 self._agent_graph_sync_future = None
                 try:
-                    parent_of, statuses, names = future.result()
+                    parent_of, statuses, names, metadata = future.result()
                 except Exception:
                     logger.exception("TUI agent graph sync failed")
                 else:
@@ -930,12 +974,18 @@ class StrixTUIApp(App):  # type: ignore[misc]
                             name=names.get(agent_id, agent_id),
                             parent_id=parent_of.get(agent_id),
                             status=status,
+                            metadata=metadata.get(agent_id),
                         )
 
         if self._scan_loop is None or self._scan_loop.is_closed():
             return
 
-        async def collect() -> tuple[dict[str, str | None], dict[str, Any], dict[str, str]]:
+        async def collect() -> tuple[
+            dict[str, str | None],
+            dict[str, Any],
+            dict[str, str],
+            dict[str, dict[str, Any]],
+        ]:
             return await self.coordinator.graph_snapshot()
 
         self._agent_graph_sync_future = asyncio.run_coroutine_threadsafe(collect(), self._scan_loop)
@@ -960,7 +1010,11 @@ class StrixTUIApp(App):  # type: ignore[misc]
             status_icon = status_indicators.get(status, "○")
             vuln_count = self._agent_vulnerability_count(agent_id)
             vuln_indicator = f" ({vuln_count})" if vuln_count > 0 else ""
-            agent_name = f"{status_icon} {agent_name_raw}{vuln_indicator}"
+
+            metadata = agent_data.get("metadata", {})
+            task = metadata.get("task", "")
+            task_suffix = f" [{task[:20]}...]" if len(task) > 20 else f" [{task}]" if task else ""
+            agent_name = f"{status_icon} {agent_name_raw}{vuln_indicator}{task_suffix}"
 
             if agent_node.label != agent_name:
                 agent_node.set_label(agent_name)
@@ -1127,34 +1181,48 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         if status in simple_statuses:
             msg, _ = simple_statuses[status]
+            metadata = agent_data.get("metadata", {})
+            task = metadata.get("task", "")
+            task_desc = f" | Task: {task}" if task else ""
             text = Text()
-            text.append(msg)
+            text.append(f"{msg}{task_desc}")
             return (text, Text(), False)
 
         if status == "failed":
             error_msg = agent_data.get("error_message", "")
+            metadata = agent_data.get("metadata", {})
+            task = metadata.get("task", "")
+            task_desc = f" | Task: {task}" if task else ""
             text = Text()
             if error_msg:
-                text.append(error_msg, style="red")
+                text.append(f"{error_msg}{task_desc}", style="red")
             else:
-                text.append("Scan failed", style="red")
+                text.append(f"Scan failed{task_desc}", style="red")
             self._stop_dot_animation()
             return (text, Text(), False)
 
         if status == "waiting":
+            metadata = agent_data.get("metadata", {})
+            task = metadata.get("task", "")
+            task_desc = f"Waiting | Task: {task}" if task else "Waiting"
             keymap = Text()
             keymap.append("Send message to resume", style="dim")
-            return (Text(" "), keymap, False)
+            return (Text(task_desc), keymap, False)
 
         if status == "running":
+            metadata = agent_data.get("metadata", {})
+            task = metadata.get("task", "")
+            task_desc = f" : {task}" if task else ""
             if self._agent_has_real_activity(agent_id):
                 animated_text = Text()
                 animated_text.append_text(self._get_sweep_animation(self._sweep_colors))
                 animated_text.append("esc", style="white")
                 animated_text.append(" ", style="dim")
                 animated_text.append("stop", style="dim")
+                if task_desc:
+                    animated_text.append(task_desc, style="dim")
                 return (animated_text, keymap_styled([("ctrl-q", "quit")]), True)
-            animated_text = self._get_animated_verb_text(agent_id, "Initializing")
+            animated_text = self._get_animated_verb_text(agent_id, f"Initializing{task_desc}")
             return (animated_text, keymap_styled([("ctrl-q", "quit")]), True)
 
         return (None, Text(), False)
@@ -1216,6 +1284,46 @@ class StrixTUIApp(App):  # type: ignore[misc]
         version = get_package_version()
         stats_content.append(f"\nv{version}", style="white")
 
+        if self.selected_agent_id:
+            selected_agent = self.live_view.agents.get(self.selected_agent_id)
+            if selected_agent:
+                stats_content.append("\n\n")
+                stats_content.append("── Agent Details ──\n", style="bold #a8a29e")
+
+                name = selected_agent.get("name", "Unknown")
+                status = selected_agent.get("status", "running")
+                status_colors = {
+                    "running": "#60a5fa",
+                    "waiting": "#fbbf24",
+                    "completed": "#34d399",
+                    "failed": "#f87171",
+                    "stopped": "#9ca3af",
+                }
+                status_color = status_colors.get(status, "white")
+
+                stats_content.append("Name: ", style="bold")
+                stats_content.append(f"{name}\n", style="white")
+
+                stats_content.append("Status: ", style="bold")
+                stats_content.append(f"{status.upper()}\n", style=status_color)
+
+                vuln_count = self._agent_vulnerability_count(self.selected_agent_id)
+                if vuln_count > 0:
+                    stats_content.append("Vulns: ", style="bold")
+                    stats_content.append(f"{vuln_count}\n", style="bold red")
+
+                metadata = selected_agent.get("metadata", {})
+                task = metadata.get("task", "")
+                if task:
+                    stats_content.append("Task: ", style="bold")
+                    stats_content.append(f"{task}\n", style="white")
+
+                skills = metadata.get("skills", [])
+                if skills:
+                    stats_content.append("Skills:\n", style="bold")
+                    for skill in skills:
+                        stats_content.append(f"  • {skill}\n", style="dim white")
+
         self._safe_widget_operation(stats_display.update, stats_content)
 
     def _update_vulnerabilities_panel(self) -> None:
@@ -1232,6 +1340,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         if not vulnerabilities:
             self._safe_widget_operation(vuln_panel.add_class, "hidden")
+            self._update_vulnerabilities_tab([])
             return
 
         enriched_vulns = []
@@ -1247,6 +1356,67 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         self._safe_widget_operation(vuln_panel.remove_class, "hidden")
         vuln_panel.update_vulnerabilities(enriched_vulns)
+        self._update_vulnerabilities_tab(enriched_vulns)
+
+    def _update_vulnerabilities_tab(self, enriched_vulns: list[dict[str, Any]]) -> None:
+        """Update the vulnerabilities tab list and select first if index is empty."""
+        try:
+            vuln_list = self.query_one("#vulns_tab_list", ListView)
+        except (ValueError, Exception):
+            return
+
+        if not self._is_widget_safe(vuln_list):
+            return
+
+        current_index = vuln_list.index
+        vuln_list.clear()
+
+        if not enriched_vulns:
+            with contextlib.suppress(Exception):
+                self.query_one("#vulns_tab_markdown", Markdown).update("")
+            return
+
+        for vuln in enriched_vulns:
+            severity = vuln.get("severity", "info").lower()
+            title = vuln.get("title", "Unknown Vulnerability")
+            color = VulnerabilitiesPanel.SEVERITY_COLORS.get(severity, "#3b82f6")
+
+            label = Text()
+            label.append("● ", style=Style(color=color))
+            label.append(title, style=Style(color="#d4d4d4"))
+
+            item = VulnerabilityReportItem(vuln, label)
+            vuln_list.append(item)
+
+        if current_index is not None and current_index < len(enriched_vulns):
+            vuln_list.index = current_index
+        else:
+            vuln_list.index = 0
+
+        if vuln_list.index is not None and vuln_list.index < len(enriched_vulns):
+            selected_vuln = enriched_vulns[vuln_list.index]
+            md_text = build_vulnerability_markdown(selected_vuln)
+            with contextlib.suppress(Exception):
+                self.query_one("#vulns_tab_markdown", Markdown).update(md_text)
+
+    def _update_markdown_preview(self, item: ListItem | None) -> None:
+        if not item or not isinstance(item, VulnerabilityReportItem):
+            return
+
+        md_text = build_vulnerability_markdown(item.vuln_data)
+        try:
+            markdown_widget = self.query_one("#vulns_tab_markdown", Markdown)
+            markdown_widget.update(md_text)
+        except Exception:
+            logger.exception("Failed to update vulnerability markdown")
+
+    @on(ListView.Highlighted, "#vulns_tab_list")
+    def on_vuln_highlighted(self, event: ListView.Highlighted) -> None:
+        self._update_markdown_preview(event.item)
+
+    @on(ListView.Selected, "#vulns_tab_list")
+    def on_vuln_selected(self, event: ListView.Selected) -> None:
+        self._update_markdown_preview(event.item)
 
     def _get_sweep_animation(self, color_palette: list[str]) -> Text:
         text = Text()
@@ -1436,7 +1606,11 @@ class StrixTUIApp(App):  # type: ignore[misc]
         status_icon = status_indicators.get(status, "○")
         vuln_count = self._agent_vulnerability_count(agent_id)
         vuln_indicator = f" ({vuln_count})" if vuln_count > 0 else ""
-        agent_name = f"{status_icon} {agent_name_raw}{vuln_indicator}"
+
+        metadata = agent_data.get("metadata", {})
+        task = metadata.get("task", "")
+        task_suffix = f" [{task[:20]}...]" if len(task) > 20 else f" [{task}]" if task else ""
+        agent_name = f"{status_icon} {agent_name_raw}{vuln_indicator}{task_suffix}"
 
         try:
             if parent_id and parent_id in self.agent_nodes:
@@ -1481,7 +1655,11 @@ class StrixTUIApp(App):  # type: ignore[misc]
         status_icon = status_indicators.get(status, "○")
         vuln_count = self._agent_vulnerability_count(agent_id)
         vuln_indicator = f" ({vuln_count})" if vuln_count > 0 else ""
-        agent_name = f"{status_icon} {agent_name_raw}{vuln_indicator}"
+
+        metadata = agent_data.get("metadata", {})
+        task = metadata.get("task", "")
+        task_suffix = f" [{task[:20]}...]" if len(task) > 20 else f" [{task}]" if task else ""
+        agent_name = f"{status_icon} {agent_name_raw}{vuln_indicator}{task_suffix}"
 
         new_node = new_parent.add(
             agent_name,

@@ -2,6 +2,7 @@
 set -e
 
 CAIDO_PORT=48080
+CAIDO_PROXY_PORT=8080
 CAIDO_LOG="/tmp/caido_startup.log"
 
 if [ ! -f /app/certs/ca.p12 ]; then
@@ -52,29 +53,29 @@ echo "Caido is up — host bootstraps the guest token + project via the Python S
 echo "Configuring system-wide proxy settings..."
 
 cat << EOF | sudo tee /etc/profile.d/proxy.sh
-export http_proxy=http://127.0.0.1:${CAIDO_PORT}
-export https_proxy=http://127.0.0.1:${CAIDO_PORT}
-export HTTP_PROXY=http://127.0.0.1:${CAIDO_PORT}
-export HTTPS_PROXY=http://127.0.0.1:${CAIDO_PORT}
-export ALL_PROXY=http://127.0.0.1:${CAIDO_PORT}
+export http_proxy=http://127.0.0.1:${CAIDO_PROXY_PORT}
+export https_proxy=http://127.0.0.1:${CAIDO_PROXY_PORT}
+export HTTP_PROXY=http://127.0.0.1:${CAIDO_PROXY_PORT}
+export HTTPS_PROXY=http://127.0.0.1:${CAIDO_PROXY_PORT}
+export ALL_PROXY=http://127.0.0.1:${CAIDO_PROXY_PORT}
 export NO_PROXY=localhost,127.0.0.1
 export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 EOF
 
 cat << EOF | sudo tee /etc/environment
-http_proxy=http://127.0.0.1:${CAIDO_PORT}
-https_proxy=http://127.0.0.1:${CAIDO_PORT}
-HTTP_PROXY=http://127.0.0.1:${CAIDO_PORT}
-HTTPS_PROXY=http://127.0.0.1:${CAIDO_PORT}
-ALL_PROXY=http://127.0.0.1:${CAIDO_PORT}
+http_proxy=http://127.0.0.1:${CAIDO_PROXY_PORT}
+https_proxy=http://127.0.0.1:${CAIDO_PROXY_PORT}
+HTTP_PROXY=http://127.0.0.1:${CAIDO_PROXY_PORT}
+HTTPS_PROXY=http://127.0.0.1:${CAIDO_PROXY_PORT}
+ALL_PROXY=http://127.0.0.1:${CAIDO_PROXY_PORT}
 NO_PROXY=localhost,127.0.0.1
 EOF
 
 cat << EOF | sudo tee /etc/wgetrc
 use_proxy=yes
-http_proxy=http://127.0.0.1:${CAIDO_PORT}
-https_proxy=http://127.0.0.1:${CAIDO_PORT}
+http_proxy=http://127.0.0.1:${CAIDO_PROXY_PORT}
+https_proxy=http://127.0.0.1:${CAIDO_PROXY_PORT}
 EOF
 
 echo "source /etc/profile.d/proxy.sh" >> ~/.bashrc

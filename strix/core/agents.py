@@ -54,6 +54,7 @@ class AgentCoordinator:
         *,
         task: str | None = None,
         skills: list[str] | None = None,
+        timeout_seconds: float = 3600.0,
     ) -> None:
         async with self._lock:
             self.statuses[agent_id] = "running"
@@ -63,9 +64,10 @@ class AgentCoordinator:
             self.metadata[agent_id] = {
                 "task": task or "",
                 "skills": list(skills or []),
+                "timeout_seconds": timeout_seconds,
             }
             self.runtimes.setdefault(agent_id, AgentRuntime())
-        logger.info("agent.register %s (%s) parent=%s", agent_id, name, parent_id or "-")
+        logger.info("agent.register %s (%s) parent=%s timeout=%s", agent_id, name, parent_id or "-", timeout_seconds)
         await self._maybe_snapshot()
 
     async def attach_runtime(
@@ -227,9 +229,19 @@ class AgentCoordinator:
 
     async def graph_snapshot(
         self,
-    ) -> tuple[dict[str, str | None], dict[str, Status], dict[str, str]]:
+    ) -> tuple[
+        dict[str, str | None],
+        dict[str, Status],
+        dict[str, str],
+        dict[str, dict[str, Any]],
+    ]:
         async with self._lock:
-            return dict(self.parent_of), dict(self.statuses), dict(self.names)
+            return (
+                dict(self.parent_of),
+                dict(self.statuses),
+                dict(self.names),
+                {aid: dict(md) for aid, md in self.metadata.items()},
+            )
 
     def _message_to_session_item(self, message: dict[str, Any]) -> TResponseInputItem:
         sender = str(message.get("from", "unknown"))

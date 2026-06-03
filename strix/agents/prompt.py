@@ -42,8 +42,10 @@ def _resolve_skills(
     ordered.append(f"scan_modes/{scan_mode}")
     ordered.append("tooling/agent_browser")
     ordered.append("tooling/python")
+    ordered.append("coordination/pentagi_guardrails")
     if is_root:
         ordered.append("coordination/root_agent")
+        ordered.append("coordination/pentagi_coordination")
     if is_whitebox:
         ordered.append("coordination/source_aware_whitebox")
         ordered.append("custom/source_aware_sast")

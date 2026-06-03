@@ -475,7 +475,7 @@ async def update_todo(ctx: RunContextWrapper, updates: str) -> str:
     return json.dumps(response, ensure_ascii=False, default=str)
 
 
-def _mark(*, agent_id: str, todo_ids: str, new_status: str) -> str:
+def _mark(*, agent_id: str, todo_ids: list[str] | str, new_status: str) -> str:
     try:
         agent_todos = _get_agent_todos(agent_id)
         ids = _normalize_todo_ids(todo_ids)
@@ -514,7 +514,7 @@ def _mark(*, agent_id: str, todo_ids: str, new_status: str) -> str:
 
 
 @function_tool(timeout=30)
-async def mark_todo_done(ctx: RunContextWrapper, todo_ids: str) -> str:
+async def mark_todo_done(ctx: RunContextWrapper, todo_ids: list[str] | str) -> str:
     """Mark one or many todos as done.
 
     Always pass a list, even for a single ID (wrap it in a one-item array).
@@ -527,7 +527,7 @@ async def mark_todo_done(ctx: RunContextWrapper, todo_ids: str) -> str:
 
 
 @function_tool(timeout=30)
-async def mark_todo_pending(ctx: RunContextWrapper, todo_ids: str) -> str:
+async def mark_todo_pending(ctx: RunContextWrapper, todo_ids: list[str] | str) -> str:
     """Reset one or many todos to pending (e.g., to retry a failed task).
 
     Always pass a list, even for a single ID (wrap it in a one-item array).
@@ -540,7 +540,7 @@ async def mark_todo_pending(ctx: RunContextWrapper, todo_ids: str) -> str:
 
 
 @function_tool(timeout=30)
-async def delete_todo(ctx: RunContextWrapper, todo_ids: str) -> str:
+async def delete_todo(ctx: RunContextWrapper, todo_ids: list[str] | str) -> str:
     """Delete one or many todos. Removes them entirely (no soft-delete).
 
     Always pass a list, even for a single ID (wrap it in a one-item array).

@@ -25,6 +25,12 @@ from strix.tools.agents_graph.tools import (
     wait_for_message,
 )
 from strix.tools.finish.tool import finish_scan
+from strix.tools.graphiti.tools import (
+    add_graph_edge,
+    add_graph_node,
+    search_graph,
+    view_graph_summary,
+)
 from strix.tools.load_skill.tool import load_skill
 from strix.tools.notes.tools import (
     create_note,
@@ -52,6 +58,7 @@ from strix.tools.todo.tools import (
     update_todo,
 )
 from strix.tools.web_search.tool import web_search
+from strix.tools.sqlmap.tool import run_sqlmap
 
 
 if TYPE_CHECKING:
@@ -333,6 +340,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     get_note,
     update_note,
     delete_note,
+    add_graph_node,
+    add_graph_edge,
+    search_graph,
+    view_graph_summary,
     web_search,
     create_vulnerability_report,
     list_requests,
@@ -346,6 +357,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     wait_for_message,
     create_agent,
     stop_agent,
+    run_sqlmap,
 )
 
 

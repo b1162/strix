@@ -24,7 +24,7 @@ from strix.config import (
     persist_current,
 )
 from strix.config.models import configure_sdk_model_defaults, normalize_model_name
-from strix.core.paths import run_dir_for, runtime_state_dir
+from strix.core.paths import RUN_RECORD_FILENAME, RUNS_DIR_NAME, run_dir_for, runtime_state_dir
 from strix.interface.cli import run_cli
 from strix.interface.tui import run_tui
 from strix.interface.utils import (
@@ -457,8 +457,283 @@ Examples:
 
         assign_workspace_subdirs(args.targets_info)
         rewrite_localhost_targets(args.targets_info, HOST_GATEWAY_HOSTNAME)
+        check_existing_scans(args, parser)
 
     return args
+
+
+def targets_match(t1: dict, t2: dict) -> bool:
+    """Compare two targets by their type and normalized identifier values."""
+    if not isinstance(t1, dict) or not isinstance(t2, dict):
+        return False
+    if t1.get("type") != t2.get("type"):
+        return False
+    t_type = t1.get("type")
+    details1 = t1.get("details") or {}
+    details2 = t2.get("details") or {}
+    matched = False
+    if t_type == "local_code":
+        p1 = details1.get("target_path")
+        p2 = details2.get("target_path")
+        matched = bool(p1 and p2 and Path(p1).resolve() == Path(p2).resolve())
+    elif t_type == "web_application":
+        u1 = details1.get("target_url")
+        u2 = details2.get("target_url")
+        matched = bool(u1 and u2 and u1.strip().rstrip("/") == u2.strip().rstrip("/"))
+    elif t_type == "repository":
+        r1 = details1.get("target_repo")
+        r2 = details2.get("target_repo")
+        matched = bool(r1 and r2 and r1.strip() == r2.strip())
+    elif t_type == "ip_address":
+        i1 = details1.get("target_ip")
+        i2 = details2.get("target_ip")
+        matched = bool(i1 and i2 and i1.strip() == i2.strip())
+    else:
+        matched = str(t1.get("original")).strip() == str(t2.get("original")).strip()
+    return matched
+
+
+def find_previous_runs(targets_info: list[dict]) -> list[dict]:
+    """Search strix_runs/ directory for any past runs that match the target list."""
+    runs_dir = Path.cwd() / RUNS_DIR_NAME
+    if not runs_dir.exists() or not runs_dir.is_dir():
+        return []
+
+    matching_runs = []
+    for subdir in runs_dir.iterdir():
+        if not subdir.is_dir():
+            continue
+        run_json_path = subdir / RUN_RECORD_FILENAME
+        if not run_json_path.exists():
+            continue
+        try:
+            with run_json_path.open("r", encoding="utf-8") as f:
+                import json
+                run_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        prev_targets = run_data.get("targets_info", [])
+        overlap = []
+        for curr_t in targets_info:
+            for prev_t in prev_targets:
+                if targets_match(curr_t, prev_t):
+                    overlap.append(curr_t)
+                    break
+        if overlap:
+            matching_runs.append({
+                "dir": subdir,
+                "data": run_data,
+                "overlap": overlap
+            })
+
+    def get_start_time(run_item: dict) -> datetime:
+        st = run_item["data"].get("start_time")
+        if st:
+            try:
+                clean_st = st.replace("Z", "+00:00")
+                return datetime.fromisoformat(clean_st)
+            except ValueError:
+                pass
+        return datetime.min.replace(tzinfo=UTC)
+
+    matching_runs.sort(key=get_start_time, reverse=True)
+    return matching_runs
+
+
+def get_vulnerabilities_for_run(run_dir: Path) -> list[dict]:
+    """Retrieve vulnerability findings list from vulnerabilities.json if it exists."""
+    vulns_path = run_dir / "vulnerabilities.json"
+    if vulns_path.exists():
+        try:
+            import json
+            with vulns_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def check_existing_scans(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Check if the target has been previously scanned and prompt or advise the user."""
+    if args.resume:
+        return
+
+    prev_runs = find_previous_runs(args.targets_info)
+    if not prev_runs:
+        return
+
+    console = Console()
+    most_recent = prev_runs[0]
+    run_name = most_recent["data"].get("run_name", "unknown")
+    status = most_recent["data"].get("status", "unknown")
+    start_time_str = most_recent["data"].get("start_time", "")
+
+    formatted_time = "unknown date"
+    if start_time_str:
+        try:
+            dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+            formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        except ValueError:
+            formatted_time = start_time_str
+
+    vulns = get_vulnerabilities_for_run(most_recent["dir"])
+
+    info_text = Text()
+    info_text.append("TARGET ALREADY SCANNED PREVIOUSLY\n\n", style="bold yellow")
+
+    info_text.append("A previous scan for this target was found:\n", style="white")
+    info_text.append("  • Run Name:  ", style="dim")
+    info_text.append(f"{run_name}\n", style="bold white")
+    info_text.append("  • Date:      ", style="dim")
+    info_text.append(f"{formatted_time}\n", style="white")
+    info_text.append("  • Status:    ", style="dim")
+
+    status_style = {
+        "completed": "bold green",
+        "interrupted": "bold yellow",
+        "failed": "bold red",
+        "running": "bold cyan"
+    }.get(status, "bold white")
+    info_text.append(f"{status.upper()}\n", style=status_style)
+
+    agents_path = runtime_state_dir(most_recent["dir"]) / "agents.json"
+    is_resumeable = agents_path.exists()
+
+    if vulns:
+        info_text.append("  • Findings:  ", style="dim")
+        severities = [v.get("severity", "unknown").lower() for v in vulns]
+        crit = severities.count("critical")
+        high = severities.count("high")
+        med = severities.count("medium")
+        low = severities.count("low")
+
+        parts = []
+        if crit:
+            parts.append(f"[bold red]{crit} Critical[/]")
+        if high:
+            parts.append(f"[bold #f97316]{high} High[/]")
+        if med:
+            parts.append(f"[bold #eab308]{med} Medium[/]")
+        if low:
+            parts.append(f"[bold #3b82f6]{low} Low[/]")
+
+        findings_str = ", ".join(parts) if parts else f"{len(vulns)} vulnerability/ies"
+        info_text.append(f"{findings_str}\n", style="white")
+
+        info_text.append("\n  [dim]Key Vulnerabilities Found:[/]\n")
+        for v in vulns[:3]:
+            title = v.get("title", "Untitled")
+            sev = v.get("severity", "unknown").upper()
+            sev_color = {
+                "CRITICAL": "red",
+                "HIGH": "#f97316",
+                "MEDIUM": "#eab308",
+                "LOW": "#3b82f6"
+            }.get(sev, "white")
+            info_text.append(f"    - [{sev_color}]{sev}[/]: {title}\n")
+        if len(vulns) > 3:
+            info_text.append(f"    - ... and {len(vulns) - 3} more.\n", style="dim")
+    else:
+        info_text.append("  • Findings:  ", style="dim")
+        if status == "completed":
+            info_text.append("No vulnerabilities identified.\n", style="green")
+        else:
+            msg = "No findings recorded (scan might have been interrupted).\n"
+            info_text.append(msg, style="yellow")
+
+    info_text.append("\nRecommended Next Steps & Checks:\n", style="bold #60a5fa")
+
+    recommendation_index = 1
+    if is_resumeable:
+        if status != "completed":
+            info_text.append(f"  {recommendation_index}. ", style="bold #60a5fa")
+            info_text.append("Resume Scan: ", style="bold white")
+            msg = "The last scan did not complete. Resume it to pick up where it left off.\n"
+            info_text.append(msg, style="white")
+        else:
+            info_text.append(f"  {recommendation_index}. ", style="bold #60a5fa")
+            info_text.append("Verify Findings: ", style="bold white")
+            msg = (
+                "Resume the scan and supply custom instructions to verify if the reported "
+                "vulnerabilities have been patched (e.g. using --instruction 'Verify if "
+                "vuln-0001 is fixed').\n"
+            )
+            info_text.append(msg, style="white")
+        recommendation_index += 1
+
+    info_text.append(f"  {recommendation_index}. ", style="bold #60a5fa")
+    info_text.append("Scan with Deeper/Different Mode: ", style="bold white")
+    prev_mode = most_recent["data"].get("scan_mode", "unknown")
+    msg = f"Run a new scan using a different mode (previous run used '{prev_mode}').\n"
+    info_text.append(msg, style="white")
+    recommendation_index += 1
+
+    info_text.append(f"  {recommendation_index}. ", style="bold #60a5fa")
+    info_text.append("Start New Scan: ", style="bold white")
+    info_text.append("Initiate a brand new, clean scan from scratch.\n", style="white")
+
+    panel = Panel(
+        info_text,
+        title="[bold white]STRIX PRE-SCAN Check",
+        title_align="left",
+        border_style="yellow",
+        padding=(1, 2),
+    )
+
+    console.print("\n")
+    console.print(panel)
+    console.print()
+
+    if args.non_interactive:
+        console.print(
+            "[dim]Running in non-interactive mode. "
+            "Proceeding with starting a new scan...[/]\n"
+        )
+        return
+
+    console.print("[bold cyan]How would you like to proceed?[/]")
+    if is_resumeable:
+        console.print(
+            f"  [bold]r[/]esume   - Resume the previous scan (run name: [bold]{run_name}[/])"
+        )
+    else:
+        console.print(
+            "  [dim]r[/][dim]esume   - (Disabled: no resumeable snapshot exists "
+            "for the previous run)[/]"
+        )
+    console.print("  [bold]n[/]ew      - Start a new clean scan from scratch (default)")
+    console.print("  [bold]c[/]ancel   - Cancel and exit")
+    console.print()
+
+    try:
+        prompt_str = "r/" if is_resumeable else ""
+        choice = input(
+            f"Enter choice [{prompt_str}n/c] (default: n): "
+        ).strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[red]Cancelled by user.[/]")
+        sys.exit(0)
+
+    if choice == "c":
+        console.print("[yellow]Scan cancelled.[/]")
+        sys.exit(0)
+    elif choice == "r" and is_resumeable:
+        args.resume = run_name
+        args.user_explicit_instruction = args.instruction
+        _load_resume_state(args, parser)
+        # Re-verify agents path just to be absolutely sure
+        agents_path = runtime_state_dir(run_dir_for(args.resume)) / "agents.json"
+        if not agents_path.exists():
+            parser.error(
+                f"--resume {args.resume}: missing {agents_path}."
+            )
+        console.print(f"[green]Resuming scan [bold]{run_name}[/]...[/]\n")
+    else:
+        console.print("[green]Starting a new scan...[/]\n")
+
 
 
 def _persist_run_record(args: argparse.Namespace) -> None:

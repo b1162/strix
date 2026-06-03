@@ -188,7 +188,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Lazy imports inside functions to avoid circular dependency with
 # strix.telemetry / strix.report.dedupe / cvss.
-"strix/tools/notes/tools.py" = ["PLC0415", "TC002"]
+"strix/tools/notes/tools.py" = ["PLC0415", "TC002", "E501"]
+"strix/tools/graphiti/tools.py" = ["PLC0415", "TC002", "E501", "BLE001"]
+"strix/tools/graphiti/engine.py" = ["E501", "BLE001", "PLR0912", "PERF403"]
 "strix/tools/finish/tool.py" = ["PLC0415", "TC002"]
 "strix/tools/reporting/tool.py" = ["PLC0415", "TC002"]
 "strix/tools/**/*.py" = [

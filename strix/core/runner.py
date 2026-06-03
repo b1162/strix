@@ -102,11 +102,13 @@ async def run_strix_scan(
         coordinator = AgentCoordinator()
     coordinator.set_snapshot_path(agents_path)
 
+    from strix.tools.graphiti.tools import hydrate_graphiti_from_disk
     from strix.tools.notes.tools import hydrate_notes_from_disk
     from strix.tools.todo.tools import hydrate_todos_from_disk
 
     hydrate_todos_from_disk(state_dir)
-    hydrate_notes_from_disk(state_dir)
+    hydrate_notes_from_disk(state_dir, scan_id)
+    hydrate_graphiti_from_disk(state_dir, scan_id)
 
     root_id: str | None = None
     if is_resume:

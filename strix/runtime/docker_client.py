@@ -22,18 +22,25 @@ re-merging the parent body. Track upstream for an injection hook.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from typing import Any
 
+import docker
 from agents.sandbox.manifest import Manifest
 from agents.sandbox.sandboxes.docker import (
     DockerSandboxClient,
+    DockerSandboxClientOptions,
+    DockerSandboxSession,
+    DockerSandboxSessionState,
     _build_docker_volume_mounts,
     _docker_port_key,
     _manifest_requires_fuse,
     _manifest_requires_sys_admin,
 )
+from agents.sandbox.session import SandboxSession
+from agents.sandbox.snapshot import SnapshotBase, SnapshotSpec, resolve_snapshot
 from docker.models.containers import Container  # type: ignore[import-untyped, unused-ignore]
 from docker.utils import parse_repository_tag  # type: ignore[import-untyped, unused-ignore]
 
@@ -42,13 +49,14 @@ logger = logging.getLogger(__name__)
 
 
 class StrixDockerSandboxClient(DockerSandboxClient):
-    async def _create_container(
+    async def _create_container(  # noqa: PLR0912
         self,
         image: str,
         *,
         manifest: Manifest | None = None,
         exposed_ports: tuple[int, ...] = (),
         session_id: uuid.UUID | None = None,
+        use_random_ports: bool = False,
     ) -> Container:
         # ----- BEGIN VERBATIM COPY of DockerSandboxClient._create_container -----
         # SDK ref: src/agents/sandbox/sandboxes/docker.py:1434-1477 (v0.14.6).
@@ -91,9 +99,20 @@ class StrixDockerSandboxClient(DockerSandboxClient):
                     security_opt=["apparmor:unconfined"],
                 )
         if exposed_ports:
-            create_kwargs["ports"] = {
-                _docker_port_key(port): ("127.0.0.1", None) for port in exposed_ports
-            }
+            if 48080 in exposed_ports and 8080 in exposed_ports:
+                if use_random_ports:
+                    create_kwargs["ports"] = {
+                        _docker_port_key(48080): ("0.0.0.0", None)
+                    }
+                else:
+                    create_kwargs["ports"] = {
+                        _docker_port_key(48080): [("0.0.0.0", 48080), ("0.0.0.0", 8080)]
+                    }
+            else:
+                create_kwargs["ports"] = {
+                    _docker_port_key(port): ("0.0.0.0", None if use_random_ports else port)
+                    for port in exposed_ports
+                }
         # ----- END VERBATIM COPY -----
 
         # Strix injections — append, don't overwrite, so FUSE/SYS_ADMIN survives.
@@ -121,3 +140,65 @@ class StrixDockerSandboxClient(DockerSandboxClient):
             image,
         )
         return container
+
+    async def create(
+        self,
+        *,
+        snapshot: SnapshotSpec | SnapshotBase | None = None,
+        manifest: Manifest | None = None,
+        options: DockerSandboxClientOptions,
+    ) -> SandboxSession:
+        image = options.image
+        session_id = uuid.uuid4()
+        manifest = manifest or Manifest()
+
+        try:
+            container = await self._create_container(
+                image,
+                manifest=manifest,
+                exposed_ports=options.exposed_ports,
+                session_id=session_id,
+                use_random_ports=False,
+            )
+            container.start()
+        except docker.errors.APIError as e:
+            err_msg = str(e)
+            if "port" in err_msg or "address already in use" in err_msg or "bind" in err_msg:
+                logger.warning(
+                    "Port binding collision detected on host. "
+                    "Falling back to dynamic/random ports. Error: %s",
+                    err_msg,
+                )
+                with contextlib.suppress(Exception):
+                    container.remove(force=True)
+
+                container = await self._create_container(
+                    image,
+                    manifest=manifest,
+                    exposed_ports=options.exposed_ports,
+                    session_id=session_id,
+                    use_random_ports=True,
+                )
+                container.start()
+            else:
+                raise
+
+        container_id = container.id
+        assert container_id is not None
+        snapshot_id = str(session_id)
+        snapshot_instance = resolve_snapshot(snapshot, snapshot_id)
+        state = DockerSandboxSessionState(
+            session_id=session_id,
+            manifest=manifest,
+            image=image,
+            snapshot=snapshot_instance,
+            container_id=container_id,
+            exposed_ports=options.exposed_ports,
+        )
+
+        inner = DockerSandboxSession(
+            docker_client=self.docker_client,
+            container=container,
+            state=state,
+        )
+        return self._wrap_session(inner, instrumentation=self._instrumentation)

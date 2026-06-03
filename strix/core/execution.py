@@ -125,6 +125,7 @@ async def spawn_child_agent(
     task: str,
     skills: list[str],
     parent_history: list[Any],
+    timeout_seconds: float = 3600.0,
     event_sink: StreamEventSink | None = None,
     hooks: RunHooks[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -140,6 +141,7 @@ async def spawn_child_agent(
         parent_id,
         task=task,
         skills=skills,
+        timeout_seconds=timeout_seconds,
     )
 
     await _start_child_runner(
@@ -162,6 +164,7 @@ async def spawn_child_agent(
             task=task,
             parent_history=parent_history,
         ),
+        timeout_seconds=timeout_seconds,
         event_sink=event_sink,
         hooks=hooks,
     )
@@ -224,6 +227,7 @@ async def respawn_subagents(
                 )
 
             child_skills = list(md.get("skills") or [])
+            timeout_seconds = float(md.get("timeout_seconds") or 3600.0)
             child_agent = factory(name=name, skills=child_skills)
             await _start_child_runner(
                 parent_ctx=parent_ctx,
@@ -240,6 +244,7 @@ async def respawn_subagents(
                 task=str(md.get("task", "")),
                 initial_input=[],
                 start_parked=start_parked,
+                timeout_seconds=timeout_seconds,
                 event_sink=event_sink,
                 hooks=hooks,
             )
@@ -460,7 +465,7 @@ async def _notify_parent_on_crash(
     agent_id: str,
     status: str,
 ) -> None:
-    if status != "crashed":
+    if status not in {"crashed", "failed", "stopped"}:
         return
     async with coordinator._lock:
         parent = coordinator.parent_of.get(agent_id)
@@ -474,7 +479,7 @@ async def _notify_parent_on_crash(
             "type": "crash",
             "priority": "high",
             "content": (
-                f"[Agent crash] {name} ({agent_id}) terminated unexpectedly. "
+                f"[Agent status: {status}] {name} ({agent_id}) terminated. "
                 "Stop waiting on this child unless you want to message it again."
             ),
         },
@@ -497,6 +502,7 @@ async def _start_child_runner(
     task: str,
     initial_input: Any,
     start_parked: bool = False,
+    timeout_seconds: float = 3600.0,
     event_sink: StreamEventSink | None = None,
     hooks: RunHooks[dict[str, Any]] | None = None,
 ) -> None:
@@ -509,21 +515,38 @@ async def _start_child_runner(
     child_ctx["parent_id"] = parent_id
     child_ctx["task"] = task
 
+    async def run_with_timeout() -> RunResultBase | None:
+        try:
+            return await asyncio.wait_for(
+                run_agent_loop(
+                    agent=child_agent,
+                    initial_input=initial_input,
+                    run_config=run_config,
+                    context=child_ctx,
+                    max_turns=max_turns,
+                    coordinator=coordinator,
+                    agent_id=child_id,
+                    interactive=interactive,
+                    session=session,
+                    start_parked=start_parked,
+                    event_sink=event_sink,
+                    hooks=hooks,
+                ),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Agent %s (%s) timed out after %s seconds",
+                name,
+                child_id,
+                timeout_seconds,
+            )
+            await coordinator.set_status(child_id, "failed")
+            await _notify_parent_on_crash(coordinator, child_id, "failed")
+            return None
+
     task_handle = asyncio.create_task(
-        run_agent_loop(
-            agent=child_agent,
-            initial_input=initial_input,
-            run_config=run_config,
-            context=child_ctx,
-            max_turns=max_turns,
-            coordinator=coordinator,
-            agent_id=child_id,
-            interactive=interactive,
-            session=session,
-            start_parked=start_parked,
-            event_sink=event_sink,
-            hooks=hooks,
-        ),
+        run_with_timeout(),
         name=f"agent-{name}-{child_id}",
     )
     await coordinator.attach_runtime(child_id, task=task_handle)

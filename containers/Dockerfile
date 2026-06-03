@@ -131,7 +131,7 @@ RUN git clone https://github.com/aravind0x7/JS-Snooper.git && \
 
 USER root
 
-RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+RUN apt-get update && apt-get install -y trufflehog
 RUN set -eux; \
     ARCH="$(uname -m)"; \
     case "$ARCH" in \

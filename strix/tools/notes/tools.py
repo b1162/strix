@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import tempfile
@@ -24,11 +25,25 @@ _notes_lock = threading.RLock()
 _DEFAULT_CONTENT_PREVIEW_CHARS = 280
 
 _notes_path: Path | None = None
+_vault_path: Path | None = None
+_current_scan_id: str | None = None
 
 
-def hydrate_notes_from_disk(state_dir: Path) -> None:
-    global _notes_path  # noqa: PLW0603
-    _notes_path = state_dir / "notes.json"
+def hydrate_notes_from_disk(state_dir: Path, scan_id: str | None = None) -> None:
+    global _notes_path, _vault_path, _current_scan_id  # noqa: PLW0603
+    _current_scan_id = scan_id
+
+    from strix.config import load_settings
+    settings = load_settings()
+
+    if settings.memory.unified:
+        base_dir = Path(settings.memory.base_dir).expanduser().resolve()
+        _notes_path = base_dir / "memory" / "notes.json"
+        _vault_path = base_dir / "vault"
+    else:
+        _notes_path = state_dir / "notes.json"
+        _vault_path = state_dir.parent / "vault"
+
     with _notes_lock:
         _notes_storage.clear()
         if not _notes_path.exists():
@@ -55,6 +70,114 @@ def hydrate_notes_from_disk(state_dir: Path) -> None:
             _notes_path,
             len(_notes_storage),
         )
+        generate_obsidian_graph_maps()
+
+
+def generate_obsidian_graph_maps() -> None:
+    """Regenerates the complete Obsidian vault .md notes, Index.md, and Graphiti Knowledge Map.md."""
+    vault = _vault_path
+    if vault is None:
+        return
+
+    with _notes_lock:
+        try:
+            # 1. Clean existing .md files safely to ensure we don't leave deleted notes
+            if vault.exists():
+                for item in list(vault.glob("**/*.md")):
+                    with contextlib.suppress(OSError):
+                        item.unlink()
+
+            vault.mkdir(parents=True, exist_ok=True)
+
+            # 2. Re-create all note files by category
+            by_category: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
+                cat: [] for cat in _VALID_NOTE_CATEGORIES
+            }
+
+            for nid, note in _notes_storage.items():
+                title = str(note.get("title", "")).strip()
+                category = str(note.get("category", "general")).strip()
+                if category not in by_category:
+                    category = "general"
+
+                # Sanitize title for filename
+                safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()
+                if not safe_title:
+                    safe_title = nid
+
+                category_dir = vault / category
+                category_dir.mkdir(parents=True, exist_ok=True)
+                note_file = category_dir / f"{safe_title}.md"
+
+                # YAML Frontmatter
+                tags_str = json.dumps(note.get("tags", []))
+                scans_str = json.dumps(note.get("scans", []))
+                frontmatter = (
+                    "---\n"
+                    f'note_id: "{nid}"\n'
+                    f'title: "{title}"\n'
+                    f'category: "{category}"\n'
+                    f"tags: {tags_str}\n"
+                    f"scans: {scans_str}\n"
+                    f'created_at: "{note.get('created_at', '')}"\n'
+                    f'updated_at: "{note.get('updated_at', '')}"\n'
+                    "---\n\n"
+                )
+
+                body = str(note.get("content", ""))
+                note_file.write_text(frontmatter + body, encoding="utf-8")
+                by_category[category].append((safe_title, title, note))
+
+            # 3. Generate Index.md (Obsidian Map of Content)
+            index_lines = [
+                "# Strix Scan Obsidian Vault",
+                "",
+                "Welcome to the autonomous security scan vault. Explore notes, findings, and knowledge graph links compiled dynamically by Strix AI hackers.",
+                "",
+                "## 🗺️ Knowledge Map",
+                "- **[[Graphiti Knowledge Map]]**: A temporal visualization of all discovered assets, endpoints, vulnerabilities, and relationships.",
+                "",
+                "## 📂 Explore Notes by Category",
+                "",
+            ]
+
+            for category in _VALID_NOTE_CATEGORIES:
+                notes_in_cat = by_category[category]
+                index_lines.append(f"### {category.capitalize()}")
+                if not notes_in_cat:
+                    index_lines.append("_No notes in this category yet._")
+                else:
+                    for safe_title, title, note in sorted(notes_in_cat, key=lambda x: x[1]):
+                        tags = note.get("tags", [])
+                        scans = note.get("scans", [])
+                        tags_suffix = f" `{'` `'.join(tags)}`" if tags else ""
+                        scans_suffix = f" _(Scans: {', '.join(scans)})_" if scans else ""
+                        index_lines.append(f"- [[{safe_title}]] - {title}{tags_suffix}{scans_suffix}")
+                index_lines.append("")
+
+            (vault / "Index.md").write_text("\n".join(index_lines), encoding="utf-8")
+
+            # 4. Generate Graphiti Knowledge Map.md
+            from strix.tools.graphiti.tools import get_graphiti
+            graph = get_graphiti()
+            mermaid_chart = graph.to_mermaid()
+
+            map_lines = [
+                "# Graphiti Knowledge Map",
+                "",
+                "This temporal knowledge graph represents the active mental model of the Strix agents, linking discovered assets, endpoints, technologies, and vulnerabilities.",
+                "",
+                "## 🗺️ Visual Relationship Graph",
+                mermaid_chart,
+                "",
+                "## 📂 Navigation",
+                "- **[[Index]]**: Go back to the main vault index.",
+            ]
+            (vault / "Graphiti Knowledge Map.md").write_text("\n".join(map_lines), encoding="utf-8")
+
+            logger.info("Obsidian Vault successfully updated at %s", vault)
+        except Exception:
+            logger.exception("Obsidian Vault update failed")
 
 
 def _persist() -> None:
@@ -78,6 +201,7 @@ def _persist() -> None:
             tmp.write(payload)
             tmp_path = Path(tmp.name)
         tmp_path.replace(path)
+        generate_obsidian_graph_maps()
     except Exception:
         logger.exception("notes persist to %s failed", path)
 
@@ -153,18 +277,56 @@ def _create_note_impl(
                     "note_id": None,
                 }
 
-            note_id = str(uuid.uuid4())[:6]
+            # Merge identical findings/notes across runs when in unified memory mode
+            existing_note_id = None
+            for nid, existing in _notes_storage.items():
+                if (
+                    existing.get("title", "").strip().lower() == title.strip().lower()
+                    and existing.get("category", "general") == category
+                ):
+                    existing_note_id = nid
+                    break
 
             timestamp = datetime.now(UTC).isoformat()
-            note = {
-                "title": title.strip(),
-                "content": content.strip(),
-                "category": category,
-                "tags": tags or [],
-                "created_at": timestamp,
-                "updated_at": timestamp,
-            }
-            _notes_storage[note_id] = note
+            scan_id = _current_scan_id or "unknown"
+
+            if existing_note_id is not None:
+                note = _notes_storage[existing_note_id]
+
+                # Merge scans
+                scans_list = list(note.get("scans", []))
+                if scan_id not in scans_list:
+                    scans_list.append(scan_id)
+                note["scans"] = scans_list
+
+                # Merge tags
+                existing_tags = set(note.get("tags", []))
+                if tags:
+                    existing_tags.update(tags)
+                note["tags"] = list(existing_tags)
+
+                # Merge content dynamically
+                stripped_new_content = content.strip()
+                if stripped_new_content not in note["content"]:
+                    note["content"] = note["content"] + f"\n\n---\n*Added in scan {scan_id}:*\n" + stripped_new_content
+
+                note["updated_at"] = timestamp
+                note_id = existing_note_id
+                message = f"Note '{title}' merged successfully under ID '{note_id}'"
+            else:
+                note_id = str(uuid.uuid4())[:6]
+                note = {
+                    "title": title.strip(),
+                    "content": content.strip(),
+                    "category": category,
+                    "tags": tags or [],
+                    "scans": [scan_id],
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                }
+                _notes_storage[note_id] = note
+                message = f"Note '{title}' created successfully"
+
         except (ValueError, TypeError) as e:
             return {"success": False, "error": f"Failed to create note: {e}", "note_id": None}
         else:
@@ -172,7 +334,7 @@ def _create_note_impl(
             return {
                 "success": True,
                 "note_id": note_id,
-                "message": f"Note '{title}' created successfully",
+                "message": message,
                 "total_count": len(_notes_storage),
             }
 
