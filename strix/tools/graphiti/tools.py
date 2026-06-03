@@ -27,10 +27,13 @@ def hydrate_graphiti_from_disk(state_dir: Path, scan_id: str | None = None) -> N
     _current_scan_id = scan_id
 
     from strix.config import load_settings
+
     settings = load_settings()
 
     if settings.memory.unified:
-        filepath = Path(settings.memory.base_dir).expanduser().resolve() / "memory" / "graphiti.json"
+        filepath = (
+            Path(settings.memory.base_dir).expanduser().resolve() / "memory" / "graphiti.json"
+        )
     else:
         filepath = state_dir / "graphiti.json"
 
@@ -47,7 +50,9 @@ def get_graphiti() -> TemporalKnowledgeGraph:
         return _graphiti_instance
 
 
-def _add_graph_node_impl(name: str, node_type: str, attributes: dict[str, Any] | None = None) -> dict[str, Any]:
+def _add_graph_node_impl(
+    name: str, node_type: str, attributes: dict[str, Any] | None = None
+) -> dict[str, Any]:
     try:
         graph = get_graphiti()
         scan_id = _current_scan_id or "unknown"
@@ -66,6 +71,7 @@ def _add_graph_node_impl(name: str, node_type: str, attributes: dict[str, Any] |
 
         # Update Obsidian graph and maps
         from strix.tools.notes.tools import generate_obsidian_graph_maps
+
         generate_obsidian_graph_maps()
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -108,6 +114,7 @@ def _add_graph_edge_impl(
 
         # Update Obsidian graph and maps
         from strix.tools.notes.tools import generate_obsidian_graph_maps
+
         generate_obsidian_graph_maps()
     except Exception as e:
         return {"success": False, "error": str(e)}

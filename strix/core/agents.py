@@ -67,7 +67,13 @@ class AgentCoordinator:
                 "timeout_seconds": timeout_seconds,
             }
             self.runtimes.setdefault(agent_id, AgentRuntime())
-        logger.info("agent.register %s (%s) parent=%s timeout=%s", agent_id, name, parent_id or "-", timeout_seconds)
+        logger.info(
+            "agent.register %s (%s) parent=%s timeout=%s",
+            agent_id,
+            name,
+            parent_id or "-",
+            timeout_seconds,
+        )
         await self._maybe_snapshot()
 
     async def attach_runtime(

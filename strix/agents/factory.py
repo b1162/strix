@@ -48,6 +48,7 @@ from strix.tools.proxy.tools import (
     view_sitemap_entry,
 )
 from strix.tools.reporting.tool import create_vulnerability_report
+from strix.tools.sqlmap.tool import run_sqlmap
 from strix.tools.thinking.tool import think
 from strix.tools.todo.tools import (
     create_todo,
@@ -58,7 +59,6 @@ from strix.tools.todo.tools import (
     update_todo,
 )
 from strix.tools.web_search.tool import web_search
-from strix.tools.sqlmap.tool import run_sqlmap
 
 
 if TYPE_CHECKING:

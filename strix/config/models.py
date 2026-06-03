@@ -48,9 +48,11 @@ def configure_sdk_model_defaults(settings: Settings) -> None:
     if llm.api_key:
         set_default_openai_key(llm.api_key, use_for_tracing=False)
         _configure_litellm_default("api_key", llm.api_key)
+        os.environ["AZURE_AI_API_KEY"] = llm.api_key
     if llm.api_base:
         os.environ["OPENAI_BASE_URL"] = llm.api_base
         _configure_litellm_default("api_base", llm.api_base)
+        os.environ["AZURE_AI_API_BASE"] = llm.api_base
         set_default_openai_api("chat_completions")
     else:
         set_default_openai_api("responses")
@@ -58,7 +60,7 @@ def configure_sdk_model_defaults(settings: Settings) -> None:
 
 def _configure_litellm_compatibility() -> None:
     """Enable LiteLLM's permissive param-handling mode."""
-    import litellm
+    import litellm  # noqa: PLC0415
 
     litellm.drop_params = True
     litellm.modify_params = True
@@ -66,7 +68,7 @@ def _configure_litellm_compatibility() -> None:
 
 def _configure_litellm_default(name: str, value: str) -> None:
     """Set LiteLLM's module-level defaults without adding a provider wrapper."""
-    import litellm
+    import litellm  # noqa: PLC0415
 
     setattr(litellm, name, value)
 

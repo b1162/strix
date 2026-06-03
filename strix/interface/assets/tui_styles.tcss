@@ -737,3 +737,71 @@ HelpScreen {
     color: #d4d4d4;
     padding: 0;
 }
+
+#dashboard_container {
+    height: 100%;
+    width: 100%;
+    layout: horizontal;
+    background: transparent;
+}
+
+#dashboard_stats_panel {
+    width: 60%;
+    height: 100%;
+    padding: 1;
+    overflow-y: auto;
+}
+
+#dashboard_agents_panel {
+    width: 40%;
+    height: 100%;
+    padding: 1;
+    border-left: solid #333333;
+}
+
+#db_progress_card, #db_vuln_card, #db_crawled_card, #db_usage_card, #db_agents_card_container {
+    background: transparent;
+    border: round #333333;
+    padding: 1 2;
+    margin-bottom: 1;
+    height: auto;
+}
+
+#db_progress_card {
+    border-title-color: #a8a29e;
+    border-title-style: bold;
+}
+
+#db_vuln_card {
+    border-title-color: #dc2626;
+    border-title-style: bold;
+}
+
+#db_crawled_card {
+    border-title-color: #3b82f6;
+    border-title-style: bold;
+}
+
+#db_usage_card {
+    border-title-color: #fbbf24;
+    border-title-style: bold;
+}
+
+#db_agents_card_container {
+    border-title-color: #22c55e;
+    border-title-style: bold;
+    height: 100%;
+}
+
+#db_agents_scroll {
+    height: 100%;
+    scrollbar-background: #000000;
+    scrollbar-color: #333333;
+    scrollbar-corner-color: #000000;
+    scrollbar-size-vertical: 1;
+}
+
+#db_agents_card {
+    width: 100%;
+    background: transparent;
+}

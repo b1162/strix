@@ -163,10 +163,7 @@ class TemporalKnowledgeGraph:
                 if (
                     query_lower in name.lower()
                     or query_lower in node["type"]
-                    or any(
-                        query_lower in str(v).lower()
-                        for v in node["attributes"].values()
-                    )
+                    or any(query_lower in str(v).lower() for v in node["attributes"].values())
                 ):
                     matched_nodes[name] = node
 
@@ -176,10 +173,7 @@ class TemporalKnowledgeGraph:
                     query_lower in edge["source"].lower()
                     or query_lower in edge["target"].lower()
                     or query_lower in edge["relationship"]
-                    or any(
-                        query_lower in str(v).lower()
-                        for v in edge["attributes"].values()
-                    )
+                    or any(query_lower in str(v).lower() for v in edge["attributes"].values())
                 ):
                     matched_edges.append(edge)
                     # Include edge endpoint nodes
@@ -251,10 +245,18 @@ class TemporalKnowledgeGraph:
             # Add custom styling for premium looks
             lines.append("")
             lines.append("    %% Styling Rules")
-            lines.append("    classDef vulnerability fill:#f43f5e,stroke:#be123c,stroke-width:2px,color:#fff;")
-            lines.append("    classDef endpoint fill:#0ea5e9,stroke:#0369a1,stroke-width:2px,color:#fff;")
-            lines.append("    classDef exploit fill:#eab308,stroke:#a16207,stroke-width:2px,color:#000;")
-            lines.append("    classDef technology fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;")
+            lines.append(
+                "    classDef vulnerability fill:#f43f5e,stroke:#be123c,stroke-width:2px,color:#fff;"
+            )
+            lines.append(
+                "    classDef endpoint fill:#0ea5e9,stroke:#0369a1,stroke-width:2px,color:#fff;"
+            )
+            lines.append(
+                "    classDef exploit fill:#eab308,stroke:#a16207,stroke-width:2px,color:#000;"
+            )
+            lines.append(
+                "    classDef technology fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;"
+            )
 
             for name, node in self.nodes.items():
                 nid = node_ids[name]

@@ -509,6 +509,7 @@ def find_previous_runs(targets_info: list[dict]) -> list[dict]:
         try:
             with run_json_path.open("r", encoding="utf-8") as f:
                 import json
+
                 run_data = json.load(f)
         except (json.JSONDecodeError, OSError):
             continue
@@ -521,11 +522,7 @@ def find_previous_runs(targets_info: list[dict]) -> list[dict]:
                     overlap.append(curr_t)
                     break
         if overlap:
-            matching_runs.append({
-                "dir": subdir,
-                "data": run_data,
-                "overlap": overlap
-            })
+            matching_runs.append({"dir": subdir, "data": run_data, "overlap": overlap})
 
     def get_start_time(run_item: dict) -> datetime:
         st = run_item["data"].get("start_time")
@@ -547,6 +544,7 @@ def get_vulnerabilities_for_run(run_dir: Path) -> list[dict]:
     if vulns_path.exists():
         try:
             import json
+
             with vulns_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
@@ -595,7 +593,7 @@ def check_existing_scans(args: argparse.Namespace, parser: argparse.ArgumentPars
         "completed": "bold green",
         "interrupted": "bold yellow",
         "failed": "bold red",
-        "running": "bold cyan"
+        "running": "bold cyan",
     }.get(status, "bold white")
     info_text.append(f"{status.upper()}\n", style=status_style)
 
@@ -631,7 +629,7 @@ def check_existing_scans(args: argparse.Namespace, parser: argparse.ArgumentPars
                 "CRITICAL": "red",
                 "HIGH": "#f97316",
                 "MEDIUM": "#eab308",
-                "LOW": "#3b82f6"
+                "LOW": "#3b82f6",
             }.get(sev, "white")
             info_text.append(f"    - [{sev_color}]{sev}[/]: {title}\n")
         if len(vulns) > 3:
@@ -689,8 +687,7 @@ def check_existing_scans(args: argparse.Namespace, parser: argparse.ArgumentPars
 
     if args.non_interactive:
         console.print(
-            "[dim]Running in non-interactive mode. "
-            "Proceeding with starting a new scan...[/]\n"
+            "[dim]Running in non-interactive mode. Proceeding with starting a new scan...[/]\n"
         )
         return
 
@@ -710,9 +707,7 @@ def check_existing_scans(args: argparse.Namespace, parser: argparse.ArgumentPars
 
     try:
         prompt_str = "r/" if is_resumeable else ""
-        choice = input(
-            f"Enter choice [{prompt_str}n/c] (default: n): "
-        ).strip().lower()
+        choice = input(f"Enter choice [{prompt_str}n/c] (default: n): ").strip().lower()
     except (KeyboardInterrupt, EOFError):
         console.print("\n[red]Cancelled by user.[/]")
         sys.exit(0)
@@ -727,13 +722,10 @@ def check_existing_scans(args: argparse.Namespace, parser: argparse.ArgumentPars
         # Re-verify agents path just to be absolutely sure
         agents_path = runtime_state_dir(run_dir_for(args.resume)) / "agents.json"
         if not agents_path.exists():
-            parser.error(
-                f"--resume {args.resume}: missing {agents_path}."
-            )
+            parser.error(f"--resume {args.resume}: missing {agents_path}.")
         console.print(f"[green]Resuming scan [bold]{run_name}[/]...[/]\n")
     else:
         console.print("[green]Starting a new scan...[/]\n")
-
 
 
 def _persist_run_record(args: argparse.Namespace) -> None:

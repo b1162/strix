@@ -56,7 +56,7 @@ async def create_or_reuse(
     # agent-browser CDP daemon's localhost traffic from looping back
     # through Caido.
     container_caido_url = f"http://127.0.0.1:{_CONTAINER_CAIDO_PORT}"
-    container_caido_proxy_url = f"http://127.0.0.1:{_CONTAINER_CAIDO_PORT}"
+    container_caido_proxy_url = f"http://127.0.0.1:{_CONTAINER_CAIDO_PROXY_PORT}"
     manifest = Manifest(
         entries=entries,
         environment=Environment(
@@ -83,11 +83,14 @@ async def create_or_reuse(
     client, session = await backend(
         image=image,
         manifest=manifest,
-        exposed_ports=(_CONTAINER_CAIDO_PORT, _CONTAINER_CAIDO_PROXY_PORT),
+        exposed_ports=(_CONTAINER_CAIDO_PORT,),
     )
 
     caido_endpoint = await session.resolve_exposed_port(_CONTAINER_CAIDO_PORT)
-    host_caido_url = f"http://{caido_endpoint.host}:{caido_endpoint.port}"
+    host = caido_endpoint.host
+    if host == "0.0.0.0":
+        host = "127.0.0.1"
+    host_caido_url = f"http://{host}:{caido_endpoint.port}"
     logger.debug("Caido host endpoint resolved: %s", host_caido_url)
 
     caido_client = await bootstrap_caido(
@@ -119,10 +122,11 @@ async def cleanup(scan_id: str) -> None:
         logger.debug("cleanup(%s): no cached session", scan_id)
         return
 
-    keep_container = (
-        os.environ.get("STRIX_KEEP_CONTAINER") in ("1", "true", "TRUE")
-        or os.environ.get("STRIX_KEEP_SANDBOX") in ("1", "true", "TRUE")
-    )
+    keep_container = os.environ.get("STRIX_KEEP_CONTAINER") in (
+        "1",
+        "true",
+        "TRUE",
+    ) or os.environ.get("STRIX_KEEP_SANDBOX") in ("1", "true", "TRUE")
     if keep_container:
         logger.info("Keeping sandbox container alive for scan %s", scan_id)
         caido_client = bundle.get("caido_client")

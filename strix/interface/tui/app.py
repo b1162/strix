@@ -74,14 +74,14 @@ class ChatTextArea(TextArea):  # type: ignore[misc]
     def on_mount(self) -> None:
         self._update_height()
 
-    def _on_key(self, event: events.Key) -> None:
+    async def _on_key(self, event: events.Key) -> None:
         if event.key == "shift+enter":
             self.insert("\n")
             event.prevent_default()
             return
 
         if event.key == "enter" and self._app_reference:
-            text_content = str(self.text)  # type: ignore[has-type]
+            text_content = str(self.text)
             message = text_content.strip()
             if message:
                 self.text = ""
@@ -91,9 +91,9 @@ class ChatTextArea(TextArea):  # type: ignore[misc]
                 event.prevent_default()
                 return
 
-        super()._on_key(event)
+        await super()._on_key(event)
 
-    @on(TextArea.Changed)  # type: ignore[misc]
+    @on(TextArea.Changed)
     def _update_height(self, _event: TextArea.Changed | None = None) -> None:
         if not self.parent:
             return
@@ -108,7 +108,7 @@ class ChatTextArea(TextArea):  # type: ignore[misc]
             self.scroll_cursor_visible()
 
 
-class SplashScreen(Static):  # type: ignore[misc]
+class SplashScreen(Static):
     ALLOW_SELECT = False
     PRIMARY_GREEN = "#22c55e"
     BANNER = (
@@ -208,7 +208,7 @@ class SplashScreen(Static):  # type: ignore[misc]
         return text
 
 
-class HelpScreen(ModalScreen):  # type: ignore[misc]
+class HelpScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         yield Grid(
             Label("Strix Help", id="help_title"),
@@ -224,7 +224,7 @@ class HelpScreen(ModalScreen):  # type: ignore[misc]
         self.app.pop_screen()
 
 
-class StopAgentScreen(ModalScreen):  # type: ignore[misc]
+class StopAgentScreen(ModalScreen[None]):
     def __init__(self, agent_name: str, agent_id: str):
         super().__init__()
         self.agent_name = agent_name
@@ -369,7 +369,7 @@ def build_vulnerability_markdown(vuln: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-class VulnerabilityDetailScreen(ModalScreen):  # type: ignore[misc]
+class VulnerabilityDetailScreen(ModalScreen[None]):
     SEVERITY_COLORS: ClassVar[dict[str, str]] = {
         "critical": "#dc2626",  # Red
         "high": "#ea580c",  # Orange
@@ -585,7 +585,7 @@ class VulnerabilityDetailScreen(ModalScreen):  # type: ignore[misc]
             self.app.pop_screen()
 
 
-class VulnerabilityItem(Static):  # type: ignore[misc]
+class VulnerabilityItem(Static):
     def __init__(self, label: Text, vuln_data: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(label, **kwargs)
         self.vuln_data = vuln_data
@@ -595,13 +595,13 @@ class VulnerabilityItem(Static):  # type: ignore[misc]
         self.app.push_screen(VulnerabilityDetailScreen(self.vuln_data))
 
 
-class VulnerabilityReportItem(ListItem):  # type: ignore[misc]
+class VulnerabilityReportItem(ListItem):
     def __init__(self, vuln_data: dict[str, Any], label: Text, **kwargs: Any) -> None:
         super().__init__(Static(label), **kwargs)
         self.vuln_data = vuln_data
 
 
-class VulnerabilitiesPanel(VerticalScroll):  # type: ignore[misc]
+class VulnerabilitiesPanel(VerticalScroll):
     SEVERITY_COLORS: ClassVar[dict[str, str]] = {
         "critical": "#dc2626",  # Red
         "high": "#ea580c",  # Orange
@@ -646,7 +646,7 @@ class VulnerabilitiesPanel(VerticalScroll):  # type: ignore[misc]
             self.mount(item)
 
 
-class QuitScreen(ModalScreen):  # type: ignore[misc]
+class QuitScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         yield Grid(
             Label("Quit Strix?", id="quit_title"),
@@ -690,7 +690,7 @@ class QuitScreen(ModalScreen):  # type: ignore[misc]
             self.app.pop_screen()
 
 
-class StrixTUIApp(App):  # type: ignore[misc]
+class StrixTUIApp(App[None]):
     CSS_PATH = str(Path(__file__).resolve().parent.parent / "assets" / "tui_styles.tcss")
     ALLOW_SELECT = True
 
@@ -724,7 +724,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         self.coordinator = AgentCoordinator()
 
-        self.agent_nodes: dict[str, TreeNode] = {}
+        self.agent_nodes: dict[str, TreeNode[Any]] = {}
 
         self._displayed_agents: set[str] = set()
         self._displayed_events: list[str] = []
@@ -748,6 +748,10 @@ class StrixTUIApp(App):  # type: ignore[misc]
             "#86efac",  # Brightest
         ]
         self._dot_animation_timer: Any | None = None
+
+        self._caido_stats_future: Any | None = None
+        self._caido_request_count: int = 0
+        self._caido_sitemap_count: int = 0
 
         self._setup_cleanup_handlers()
 
@@ -785,18 +789,52 @@ class StrixTUIApp(App):  # type: ignore[misc]
             yield SplashScreen(id="splash_screen")
 
     async def watch_show_splash(self, show_splash: bool) -> None:
-        if not show_splash and self.is_mounted:
+        if not show_splash and self._is_mounted:
             try:
                 splash = self.query_one("#splash_screen")
                 splash.remove()
-            except ValueError:
-                pass
+            except Exception:
+                logger.debug("Splash screen not found or already removed")
 
             main_container = Vertical(id="main_container")
             await self.mount(main_container)
 
             tabbed_content = TabbedContent(id="tui_tabs")
             await main_container.mount(tabbed_content)
+
+            # Tab 0: Dashboard
+            dashboard_pane = TabPane("Dashboard", id="dashboard_tab")
+            await tabbed_content.add_pane(dashboard_pane)
+
+            db_container = Horizontal(id="dashboard_container")
+            await dashboard_pane.mount(db_container)
+
+            db_stats_panel = Vertical(id="dashboard_stats_panel")
+            db_agents_panel = Vertical(id="dashboard_agents_panel")
+            await db_container.mount(db_stats_panel)
+            await db_container.mount(db_agents_panel)
+
+            db_progress_card = Static("", id="db_progress_card")
+            db_vuln_card = Static("", id="db_vuln_card")
+            db_crawled_card = Static("", id="db_crawled_card")
+            db_usage_card = Static("", id="db_usage_card")
+
+            db_progress_card.border_title = "Scan Progress & Target"
+            db_vuln_card.border_title = "Vulnerabilities Found"
+            db_crawled_card.border_title = "Crawled Data"
+            db_usage_card.border_title = "Model & LLM Cost"
+
+            await db_stats_panel.mount(db_progress_card)
+            await db_stats_panel.mount(db_vuln_card)
+            await db_stats_panel.mount(db_crawled_card)
+            await db_stats_panel.mount(db_usage_card)
+
+            db_agents_card = Static("", id="db_agents_card")
+            db_agents_scroll = VerticalScroll(db_agents_card, id="db_agents_scroll")
+            db_agents_card_container = Vertical(db_agents_scroll, id="db_agents_card_container")
+            db_agents_card_container.border_title = "Active Subagents"
+
+            await db_agents_panel.mount(db_agents_card_container)
 
             # Tab 1: Chat / Console
             chat_pane = TabPane("Chat & Agents", id="chat_tab")
@@ -830,13 +868,12 @@ class StrixTUIApp(App):  # type: ignore[misc]
             chat_input.set_app_reference(self)
             chat_input_container = Horizontal(chat_prompt, chat_input, id="chat_input_container")
 
-            agents_tree = Tree("Agents", id="agents_tree")
+            agents_tree: Tree[Any] = Tree("Agents", id="agents_tree")
             agents_tree.root.expand()
             agents_tree.show_root = False
 
-            agents_tree.show_guide = True
+            agents_tree.show_guides = True
             agents_tree.guide_depth = 3
-            agents_tree.guide_style = "dashed"
 
             stats_display = Static("", id="stats_display")
             stats_scroll = VerticalScroll(stats_display, id="stats_scroll")
@@ -856,14 +893,11 @@ class StrixTUIApp(App):  # type: ignore[misc]
             vulns_tab_list = ListView(id="vulns_tab_list")
             vulns_tab_markdown = Markdown(id="vulns_tab_markdown")
             vulns_tab_markdown_container = VerticalScroll(
-                vulns_tab_markdown,
-                id="vulns_tab_markdown_container"
+                vulns_tab_markdown, id="vulns_tab_markdown_container"
             )
 
             vulns_tab_container = Horizontal(
-                vulns_tab_list,
-                vulns_tab_markdown_container,
-                id="vulns_tab_container"
+                vulns_tab_list, vulns_tab_markdown_container, id="vulns_tab_container"
             )
 
             vulnerabilities_pane = TabPane("Vulnerabilities", id="vulnerabilities_tab")
@@ -876,7 +910,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         if len(self.screen_stack) > 1 or self.show_splash:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         try:
@@ -891,7 +925,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         if len(self.screen_stack) > 1 or self.show_splash:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         try:
@@ -923,34 +957,58 @@ class StrixTUIApp(App):  # type: ignore[misc]
         if len(self.screen_stack) > 1:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         try:
-            chat_history = self.query_one("#chat_history", VerticalScroll)
-            agents_tree = self.query_one("#agents_tree", Tree)
+            self._sync_agent_graph()
+        except Exception:
+            logger.exception("Failed to sync agent graph")
 
-            if not self._is_widget_safe(chat_history) or not self._is_widget_safe(agents_tree):
-                return
-        except (ValueError, Exception):
-            return
+        try:
+            self._sync_caido_stats()
+        except Exception:
+            logger.exception("Failed to sync caido stats")
 
-        self._sync_agent_graph()
+        try:
+            for agent_id, agent_data in list(self.live_view.agents.items()):
+                if agent_id not in self._displayed_agents:
+                    self._add_agent_node(agent_data)
+                    self._displayed_agents.add(agent_id)
+                else:
+                    self._update_agent_node(agent_id, agent_data)
+        except Exception:
+            logger.exception("Failed to update agent nodes")
 
-        for agent_id, agent_data in list(self.live_view.agents.items()):
-            if agent_id not in self._displayed_agents:
-                self._add_agent_node(agent_data)
-                self._displayed_agents.add(agent_id)
-            else:
-                self._update_agent_node(agent_id, agent_data)
+        try:
+            self._update_chat_view()
+        except Exception:
+            logger.exception("Failed to update chat view")
 
-        self._update_chat_view()
+        try:
+            self._update_agent_status_display()
+        except Exception:
+            logger.exception("Failed to update agent status display")
 
-        self._update_agent_status_display()
+        try:
+            self._update_stats_display()
+        except Exception:
+            logger.exception("Failed to update stats display")
 
-        self._update_stats_display()
+        try:
+            self._update_vulnerabilities_panel()
+        except Exception:
+            logger.exception("Failed to update vulnerabilities panel")
 
-        self._update_vulnerabilities_panel()
+        try:
+            self._update_vulnerabilities_tab_view()
+        except Exception:
+            logger.exception("Failed to update vulnerabilities tab view")
+
+        try:
+            self._update_dashboard()
+        except Exception:
+            logger.exception("Failed to update dashboard")
 
     def _sync_agent_graph(self) -> None:
         future = self._agent_graph_sync_future
@@ -989,6 +1047,243 @@ class StrixTUIApp(App):  # type: ignore[misc]
             return await self.coordinator.graph_snapshot()
 
         self._agent_graph_sync_future = asyncio.run_coroutine_threadsafe(collect(), self._scan_loop)
+
+    def _sync_caido_stats(self) -> None:
+        future = self._caido_stats_future
+        if future is not None:
+            if not future.done():
+                if self._scan_loop is not None and self._scan_loop.is_closed():
+                    future.cancel()
+                    self._caido_stats_future = None
+                else:
+                    return
+            else:
+                self._caido_stats_future = None
+                try:
+                    req_count, sitemap_count = future.result()
+                except Exception:
+                    logger.debug("TUI caido stats sync failed")
+                else:
+                    self._caido_request_count = req_count
+                    self._caido_sitemap_count = sitemap_count
+
+        if self._scan_loop is None or self._scan_loop.is_closed():
+            return
+
+        async def fetch_stats() -> tuple[int, int]:
+            bundle = session_manager._SESSION_CACHE.get(self.scan_config["run_name"])
+            client = bundle.get("caido_client") if bundle else None
+            if not client:
+                return 0, 0
+
+            # Query request count
+            req_count = 0
+            with contextlib.suppress(Exception):
+                res = await client.graphql.query("""
+                    query {
+                        requests(first: 1) {
+                            count {
+                                value
+                            }
+                        }
+                    }
+                """)
+                req_count = res.get("requests", {}).get("count", {}).get("value", 0)
+
+            # Query sitemap count
+            sitemap_count = 0
+            with contextlib.suppress(Exception):
+                res = await client.graphql.query("""
+                    query {
+                        sitemapRootEntries {
+                            count {
+                                value
+                            }
+                        }
+                    }
+                """)
+                sitemap_count = res.get("sitemapRootEntries", {}).get("count", {}).get("value", 0)
+
+            return req_count, sitemap_count
+
+        self._caido_stats_future = asyncio.run_coroutine_threadsafe(fetch_stats(), self._scan_loop)
+
+    def _update_dashboard(self) -> None:
+        # 1. Progress Card
+        try:
+            db_progress_card = self.query_one("#db_progress_card", Static)
+            if self._is_widget_safe(db_progress_card):
+                targets = []
+                for t in self.scan_config.get("targets", []):
+                    target_str = (
+                        t.get("original")
+                        or t.get("details", {}).get("target_url")
+                        or "unknown"
+                    )
+                    targets.append(target_str)
+                targets_str = ", ".join(targets)
+
+                from datetime import UTC, datetime
+                try:
+                    start_dt = datetime.fromisoformat(self.report_state.start_time)
+                    if self.report_state.end_time:
+                        end_dt = datetime.fromisoformat(self.report_state.end_time)
+                        elapsed = end_dt - start_dt
+                    else:
+                        elapsed = datetime.now(UTC) - start_dt
+                    seconds = int(elapsed.total_seconds())
+                    hours, remainder = divmod(seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                except Exception:
+                    elapsed_str = "00:00:00"
+
+                status = self.report_state.run_record.get("status", "running")
+                status_colors = {
+                    "running": "bold #3b82f6",
+                    "completed": "bold #22c55e",
+                    "failed": "bold #ef4444",
+                    "stopped": "bold #737373",
+                    "interrupted": "bold #f59e0b",
+                }
+                status_color = status_colors.get(status.lower(), "bold white")
+                mode = self.scan_config.get("scan_mode", "deep").upper()
+
+                progress_text = Text()
+                progress_text.append("Target:    ", style="bold #a8a29e")
+                progress_text.append(targets_str, style="white")
+                progress_text.append("\nStatus:    ", style="bold #a8a29e")
+                progress_text.append(status.upper(), style=status_color)
+                progress_text.append("\nMode:      ", style="bold #a8a29e")
+                progress_text.append(mode, style="white")
+                progress_text.append("\nDuration:  ", style="bold #a8a29e")
+                progress_text.append(elapsed_str, style="white")
+                self._safe_widget_operation(db_progress_card.update, progress_text)
+        except Exception as e:
+            logger.debug("Failed to update progress card: %s", e)
+
+        # 2. Vulnerability Card
+        try:
+            db_vuln_card = self.query_one("#db_vuln_card", Static)
+            if self._is_widget_safe(db_vuln_card):
+                vulns = self.report_state.vulnerability_reports
+                vuln_count = len(vulns)
+                severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                for v in vulns:
+                    sev = v.get("severity", "info").lower()
+                    if sev in severity_counts:
+                        severity_counts[sev] += 1
+
+                vuln_text = Text()
+                vuln_text.append("Total Findings: ", style="bold #a8a29e")
+                vuln_text.append(str(vuln_count), style="bold white")
+                vuln_text.append("\n\n")
+
+                sevs = [
+                    ("critical", "CRITICAL", "#dc2626"),
+                    ("high", "HIGH", "#ea580c"),
+                    ("medium", "MEDIUM", "#d97706"),
+                    ("low", "LOW", "#22c55e"),
+                    ("info", "INFO", "#3b82f6"),
+                ]
+                parts = []
+                for key, name, color in sevs:
+                    count = severity_counts[key]
+                    part = Text()
+                    part.append(f" {name}: ", style=f"bold {color}")
+                    part.append(str(count), style="bold white")
+                    parts.append(part)
+
+                for i, part in enumerate(parts):
+                    vuln_text.append_text(part)
+                    if i < len(parts) - 1:
+                        vuln_text.append("  |  ", style="dim white")
+                self._safe_widget_operation(db_vuln_card.update, vuln_text)
+        except Exception as e:
+            logger.debug("Failed to update vuln card: %s", e)
+
+        # 3. Crawled Data Card
+        try:
+            db_crawled_card = self.query_one("#db_crawled_card", Static)
+            if self._is_widget_safe(db_crawled_card):
+                crawled_text = Text()
+                crawled_text.append("HTTP Requests captured: ", style="bold #a8a29e")
+                crawled_text.append(str(self._caido_request_count), style="white")
+                crawled_text.append("\nSitemap Domains:        ", style="bold #a8a29e")
+                crawled_text.append(str(self._caido_sitemap_count), style="white")
+                caido_url = getattr(self.report_state, "caido_url", None)
+                if caido_url:
+                    crawled_text.append("\nCaido Console URL:      ", style="bold #a8a29e")
+                    crawled_text.append(caido_url, style="bold #3b82f6")
+                self._safe_widget_operation(db_crawled_card.update, crawled_text)
+        except Exception as e:
+            logger.debug("Failed to update crawled data card: %s", e)
+
+        # 4. Model & LLM Cost Card
+        try:
+            db_usage_card = self.query_one("#db_usage_card", Static)
+            if self._is_widget_safe(db_usage_card):
+                model = load_settings().llm.model or "unknown"
+                usage = self.report_state.get_total_llm_usage()
+                cost = usage.get("cost", 0.0)
+                total_tokens = usage.get("total_tokens", 0)
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+
+                usage_text = Text()
+                usage_text.append("Model:          ", style="bold #a8a29e")
+                usage_text.append(str(model), style="white")
+                usage_text.append("\nEstimated Cost: ", style="bold #a8a29e")
+                usage_text.append(f"${cost:.4f}", style="bold #fbbf24")
+                usage_text.append("\nToken Usage:    ", style="bold #a8a29e")
+                usage_text.append(
+                    f"Input: {input_tokens:,} | "
+                    f"Output: {output_tokens:,} | "
+                    f"Total: {total_tokens:,}",
+                    style="white",
+                )
+                self._safe_widget_operation(db_usage_card.update, usage_text)
+        except Exception as e:
+            logger.debug("Failed to update usage card: %s", e)
+
+        # 5. Active Subagents Card
+        try:
+            db_agents_card = self.query_one("#db_agents_card", Static)
+            if self._is_widget_safe(db_agents_card):
+                agents_text = Text()
+                active_agents = []
+                for agent_id, agent_data in self.live_view.agents.items():
+                    status = agent_data.get("status", "running")
+                    if status in ["running", "waiting"]:
+                        active_agents.append((agent_id, agent_data))
+
+                if not active_agents:
+                    agents_text.append(
+                        "No active subagents currently executing.",
+                        style="italic #737373",
+                    )
+                else:
+                    for i, (_, agent_data) in enumerate(active_agents):
+                        name = agent_data.get("name", "Unknown Agent")
+                        status = agent_data.get("status", "running")
+                        metadata = agent_data.get("metadata", {})
+                        task = metadata.get("task", "")
+
+                        status_icon = "⚪" if status == "running" else "⏸"
+                        status_color = "#3b82f6" if status == "running" else "#fbbf24"
+
+                        if i > 0:
+                            agents_text.append("\n")
+                        agents_text.append(f"{status_icon} ", style=f"bold {status_color}")
+                        agents_text.append(f"{name} ", style="bold white")
+                        agents_text.append(f"[{status}]", style=f"dim {status_color}")
+                        if task:
+                            agents_text.append("\n   Task: ", style="bold #a8a29e")
+                            agents_text.append(task, style="white")
+                        agents_text.append("\n")
+                self._safe_widget_operation(db_agents_card.update, agents_text)
+        except Exception as e:
+            logger.debug("Failed to update agents card: %s", e)
 
     def _update_agent_node(self, agent_id: str, agent_data: dict[str, Any]) -> bool:
         if agent_id not in self.agent_nodes:
@@ -1046,7 +1341,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         return self._get_rendered_events_content(events), "chat-content"
 
     def _update_chat_view(self) -> None:
-        if len(self.screen_stack) > 1 or self.show_splash or not self.is_mounted:
+        if len(self.screen_stack) > 1 or self.show_splash or not self._is_mounted:
             return
 
         try:
@@ -1068,7 +1363,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         chat_display = self.query_one("#chat_display", Static)
         self._safe_widget_operation(chat_display.update, content)
-        chat_display.set_classes(css_class)
+        chat_display.set_classes(css_class or "")
 
         if is_at_bottom:
             self.call_later(chat_history.scroll_end, animate=False)
@@ -1326,6 +1621,19 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         self._safe_widget_operation(stats_display.update, stats_content)
 
+    def _get_enriched_vulns(self, vulnerabilities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        enriched_vulns = []
+        for vuln in vulnerabilities:
+            enriched = dict(vuln)
+            agent_name = enriched.get("agent_name")
+            agent_id = enriched.get("agent_id")
+            if not agent_name and isinstance(agent_id, str):
+                agent_name = self._get_agent_name(agent_id)
+            if agent_name:
+                enriched["agent_name"] = agent_name
+            enriched_vulns.append(enriched)
+        return enriched_vulns
+
     def _update_vulnerabilities_panel(self) -> None:
         """Update the vulnerabilities panel with current vulnerability data."""
         try:
@@ -1340,22 +1648,16 @@ class StrixTUIApp(App):  # type: ignore[misc]
 
         if not vulnerabilities:
             self._safe_widget_operation(vuln_panel.add_class, "hidden")
-            self._update_vulnerabilities_tab([])
             return
 
-        enriched_vulns = []
-        for vuln in vulnerabilities:
-            enriched = dict(vuln)
-            agent_name = enriched.get("agent_name")
-            agent_id = enriched.get("agent_id")
-            if not agent_name and isinstance(agent_id, str):
-                agent_name = self._get_agent_name(agent_id)
-            if agent_name:
-                enriched["agent_name"] = agent_name
-            enriched_vulns.append(enriched)
-
+        enriched_vulns = self._get_enriched_vulns(vulnerabilities)
         self._safe_widget_operation(vuln_panel.remove_class, "hidden")
         vuln_panel.update_vulnerabilities(enriched_vulns)
+
+    def _update_vulnerabilities_tab_view(self) -> None:
+        """Update the vulnerabilities tab database."""
+        vulnerabilities = self.report_state.vulnerability_reports
+        enriched_vulns = self._get_enriched_vulns(vulnerabilities)
         self._update_vulnerabilities_tab(enriched_vulns)
 
     def _update_vulnerabilities_tab(self, enriched_vulns: list[dict[str, Any]]) -> None:
@@ -1369,6 +1671,16 @@ class StrixTUIApp(App):  # type: ignore[misc]
             return
 
         current_index = vuln_list.index
+
+        # Avoid clearing and resetting selection if the vulnerability list hasn't changed.
+        existing_vulns = [
+            item.vuln_data
+            for item in vuln_list.children
+            if isinstance(item, VulnerabilityReportItem)
+        ]
+        if existing_vulns == enriched_vulns:
+            return
+
         vuln_list.clear()
 
         if not enriched_vulns:
@@ -1512,7 +1824,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         if len(self.screen_stack) > 1 or self.show_splash:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         self._displayed_events.clear()
@@ -1581,7 +1893,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         if len(self.screen_stack) > 1 or self.show_splash:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         agent_id = agent_data["id"]
@@ -1638,7 +1950,9 @@ class StrixTUIApp(App):  # type: ignore[misc]
         except (AttributeError, ValueError, RuntimeError) as e:
             logger.warning(f"Failed to add agent node {agent_id}: {e}")
 
-    def _copy_node_under(self, node_to_copy: TreeNode, new_parent: TreeNode) -> None:
+    def _copy_node_under(self, node_to_copy: TreeNode[Any], new_parent: TreeNode[Any]) -> None:
+        if node_to_copy.data is None:
+            return
         agent_id = node_to_copy.data["agent_id"]
         agent_data = self.live_view.agents.get(agent_id, {})
         agent_name_raw = agent_data.get("name", "Agent")
@@ -1720,11 +2034,11 @@ class StrixTUIApp(App):  # type: ignore[misc]
         return AgentMessageRenderer.render_simple(content)
 
     @on(Tree.NodeHighlighted)  # type: ignore[misc]
-    def handle_tree_highlight(self, event: Tree.NodeHighlighted) -> None:
+    def handle_tree_highlight(self, event: Tree.NodeHighlighted[Any]) -> None:
         if len(self.screen_stack) > 1 or self.show_splash:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         node = event.node
@@ -1740,11 +2054,11 @@ class StrixTUIApp(App):  # type: ignore[misc]
                 self.selected_agent_id = agent_id
 
     @on(Tree.NodeSelected)  # type: ignore[misc]
-    def handle_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+    def handle_tree_node_selected(self, event: Tree.NodeSelected[Any]) -> None:
         if len(self.screen_stack) > 1 or self.show_splash:
             return
 
-        if not self.is_mounted:
+        if not self._is_mounted:
             return
 
         node = event.node
@@ -1793,7 +2107,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         return "Unknown Agent"
 
     def action_toggle_help(self) -> None:
-        if self.show_splash or not self.is_mounted:
+        if self.show_splash or not self._is_mounted:
             return
 
         try:
@@ -1811,7 +2125,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         self.push_screen(HelpScreen())
 
     def action_request_quit(self) -> None:
-        if self.show_splash or not self.is_mounted:
+        if self.show_splash or not self._is_mounted:
             self.action_custom_quit()
             return
 
@@ -1827,7 +2141,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
         self.push_screen(QuitScreen())
 
     def action_stop_selected_agent(self) -> None:
-        if self.show_splash or not self.is_mounted:
+        if self.show_splash or not self._is_mounted:
             return
 
         if len(self.screen_stack) > 1:
@@ -1910,7 +2224,7 @@ class StrixTUIApp(App):  # type: ignore[misc]
             return True
 
     def on_resize(self, event: events.Resize) -> None:
-        if self.show_splash or not self.is_mounted:
+        if self.show_splash or not self._is_mounted:
             return
 
         try:

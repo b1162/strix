@@ -34,6 +34,7 @@ def hydrate_notes_from_disk(state_dir: Path, scan_id: str | None = None) -> None
     _current_scan_id = scan_id
 
     from strix.config import load_settings
+
     settings = load_settings()
 
     if settings.memory.unified:
@@ -119,8 +120,8 @@ def generate_obsidian_graph_maps() -> None:
                     f'category: "{category}"\n'
                     f"tags: {tags_str}\n"
                     f"scans: {scans_str}\n"
-                    f'created_at: "{note.get('created_at', '')}"\n'
-                    f'updated_at: "{note.get('updated_at', '')}"\n'
+                    f'created_at: "{note.get("created_at", "")}"\n'
+                    f'updated_at: "{note.get("updated_at", "")}"\n'
                     "---\n\n"
                 )
 
@@ -152,13 +153,16 @@ def generate_obsidian_graph_maps() -> None:
                         scans = note.get("scans", [])
                         tags_suffix = f" `{'` `'.join(tags)}`" if tags else ""
                         scans_suffix = f" _(Scans: {', '.join(scans)})_" if scans else ""
-                        index_lines.append(f"- [[{safe_title}]] - {title}{tags_suffix}{scans_suffix}")
+                        index_lines.append(
+                            f"- [[{safe_title}]] - {title}{tags_suffix}{scans_suffix}"
+                        )
                 index_lines.append("")
 
             (vault / "Index.md").write_text("\n".join(index_lines), encoding="utf-8")
 
             # 4. Generate Graphiti Knowledge Map.md
             from strix.tools.graphiti.tools import get_graphiti
+
             graph = get_graphiti()
             mermaid_chart = graph.to_mermaid()
 
@@ -308,7 +312,11 @@ def _create_note_impl(
                 # Merge content dynamically
                 stripped_new_content = content.strip()
                 if stripped_new_content not in note["content"]:
-                    note["content"] = note["content"] + f"\n\n---\n*Added in scan {scan_id}:*\n" + stripped_new_content
+                    note["content"] = (
+                        note["content"]
+                        + f"\n\n---\n*Added in scan {scan_id}:*\n"
+                        + stripped_new_content
+                    )
 
                 note["updated_at"] = timestamp
                 note_id = existing_note_id

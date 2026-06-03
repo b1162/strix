@@ -102,11 +102,13 @@ class StrixDockerSandboxClient(DockerSandboxClient):
             if 48080 in exposed_ports and 8080 in exposed_ports:
                 if use_random_ports:
                     create_kwargs["ports"] = {
-                        _docker_port_key(48080): ("0.0.0.0", None)
+                        _docker_port_key(48080): ("0.0.0.0", None),
+                        _docker_port_key(8080): ("0.0.0.0", None),
                     }
                 else:
                     create_kwargs["ports"] = {
-                        _docker_port_key(48080): [("0.0.0.0", 48080), ("0.0.0.0", 8080)]
+                        _docker_port_key(48080): ("0.0.0.0", 48080),
+                        _docker_port_key(8080): ("0.0.0.0", 8080),
                     }
             else:
                 create_kwargs["ports"] = {

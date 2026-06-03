@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from agents import RunContextWrapper, function_tool
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +59,15 @@ async def run_sqlmap(
 
     # Build sqlmap command arguments
     args = [
-        "-u", url,
+        "-u",
+        url,
         "--batch",
-        "--threads", "5",
-        "--timeout", "10",
-        "--retries", "1",
+        "--threads",
+        "5",
+        "--timeout",
+        "10",
+        "--retries",
+        "1",
     ]
 
     if parameter:
@@ -101,9 +105,17 @@ async def run_sqlmap(
 
     # Process results safely
     stdout_bytes = getattr(result, "stdout", b"")
-    stdout = stdout_bytes.decode("utf-8", errors="replace") if isinstance(stdout_bytes, bytes) else str(stdout_bytes)
+    stdout = (
+        stdout_bytes.decode("utf-8", errors="replace")
+        if isinstance(stdout_bytes, bytes)
+        else str(stdout_bytes)
+    )
     stderr_bytes = getattr(result, "stderr", b"")
-    stderr = stderr_bytes.decode("utf-8", errors="replace") if isinstance(stderr_bytes, bytes) else str(stderr_bytes)
+    stderr = (
+        stderr_bytes.decode("utf-8", errors="replace")
+        if isinstance(stderr_bytes, bytes)
+        else str(stderr_bytes)
+    )
     exit_code = getattr(result, "exit_code", -1)
 
     # Filter/clean stdout to extract high-signal info and prevent token bloat
@@ -113,12 +125,20 @@ async def run_sqlmap(
     in_summary = False
 
     for line in lines:
-        if "identified the following injection point" in line or "sqlmap identified the following" in line:
+        if (
+            "identified the following injection point" in line
+            or "sqlmap identified the following" in line
+        ):
             in_summary = True
-        
+
         if in_summary:
             summary_lines.append(line)
-        elif "[INFO] the back-end DBMS is" in line or "[INFO] target URL is vulnerable" in line or "[ERROR]" in line or "[CRITICAL]" in line:
+        elif (
+            "[INFO] the back-end DBMS is" in line
+            or "[INFO] target URL is vulnerable" in line
+            or "[ERROR]" in line
+            or "[CRITICAL]" in line
+        ):
             high_signal_lines.append(line)
 
     clean_output = "\n".join(high_signal_lines)
