@@ -42,6 +42,7 @@ dependencies = [
   "requests>=2.32.0",
   "cvss>=3.2",
   "caido-sdk-client>=0.2.0",
+  "pyotp>=2.9.0",
 ]
 
 [project.scripts]
@@ -211,6 +212,7 @@ ignore = [
 "strix/tools/todo/tools.py" = ["TC002"]
 "strix/tools/thinking/tool.py" = ["TC002"]
 "strix/tools/web_search/tool.py" = ["TC002"]
+"strix/tools/otp/tools.py" = ["TC002"]
 "strix/tools/proxy/tools.py" = ["TC002", "PLR0911"]
 "strix/tools/agents_graph/tools.py" = ["TC002"]
 "strix/agents/factory.py" = ["TC002"]
