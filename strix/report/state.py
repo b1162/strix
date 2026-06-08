@@ -8,7 +8,8 @@ from uuid import uuid4
 
 from agents.usage import Usage
 
-from strix.core.paths import run_dir_for
+from strix.core.paths import run_dir_for, vulns_db_path
+from strix.report import db as vulndb
 from strix.report.usage import LLMUsageLedger
 from strix.report.writer import (
     read_run_record,
@@ -333,6 +334,22 @@ class ReportState:
             logger.info("Essential scan data saved to: %s", run_dir)
         except (OSError, RuntimeError):
             logger.exception("Failed to save scan data")
+
+        try:
+            db_path = vulns_db_path(run_dir)
+            vulndb.upsert_run(
+                db_path,
+                run_id=self.run_id,
+                run_name=self.run_name,
+                start_time=self.start_time,
+                end_time=self.end_time,
+                status=str(self.run_record.get("status", "running")),
+                targets=list(self.run_record.get("targets_info") or []),
+            )
+            for vuln in self.vulnerability_reports:
+                vulndb.upsert_vulnerability(db_path, self.run_id, vuln)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to sync vulnerabilities to SQLite DB")
 
     def _sync_llm_usage_record(self) -> None:
         self.run_record["llm_usage"] = self._build_llm_usage_record()
