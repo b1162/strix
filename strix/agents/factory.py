@@ -58,6 +58,7 @@ from strix.tools.todo.tools import (
     mark_todo_pending,
     update_todo,
 )
+from strix.tools.otp.tools import get_totp
 from strix.tools.web_search.tool import web_search
 
 
@@ -345,6 +346,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     search_graph,
     view_graph_summary,
     web_search,
+    get_totp,
     create_vulnerability_report,
     list_requests,
     view_request,

@@ -31,11 +31,15 @@ async def create_or_reuse(
     *,
     image: str,
     local_sources: list[dict[str, str]],
+    run_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Return the existing session bundle for ``scan_id`` or create a new one.
 
     Each ``local_sources`` entry mounts its host ``source_path`` at
-    ``/workspace/<workspace_subdir>`` inside the container.
+    ``/workspace/<workspace_subdir>`` inside the container.  When ``run_dir``
+    is supplied the entire run directory is additionally mounted at
+    ``/workspace/.run`` so that agents executing shell commands can read and
+    write persistent run-level artefacts.
     """
     cached = _SESSION_CACHE.get(scan_id)
     if cached is not None:
@@ -49,6 +53,12 @@ async def create_or_reuse(
         if not ws_subdir or not host_path:
             continue
         entries[ws_subdir] = LocalDir(src=Path(host_path).expanduser().resolve())
+
+    if run_dir is not None:
+        resolved_run_dir = run_dir.expanduser().resolve()
+        resolved_run_dir.mkdir(parents=True, exist_ok=True)
+        entries[".run"] = LocalDir(src=resolved_run_dir)
+        logger.debug("Mounting run directory %s at /workspace/.run", resolved_run_dir)
 
     # Caido runs as an in-container sidecar; HTTP(S) traffic from any
     # process started via ``session.exec`` (the SDK's Shell tool, etc.)

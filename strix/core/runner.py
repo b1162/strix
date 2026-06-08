@@ -144,6 +144,7 @@ async def run_strix_scan(
         scan_id,
         image=image,
         local_sources=local_sources or [],
+        run_dir=run_dir,
     )
     logger.info("Sandbox ready for scan %s", scan_id)
 

@@ -973,8 +973,8 @@ class StrixTUIApp(App[None]):
         try:
             for agent_id, agent_data in list(self.live_view.agents.items()):
                 if agent_id not in self._displayed_agents:
-                    self._add_agent_node(agent_data)
-                    self._displayed_agents.add(agent_id)
+                    if self._add_agent_node(agent_data):
+                        self._displayed_agents.add(agent_id)
                 else:
                     self._update_agent_node(agent_id, agent_data)
         except Exception:
@@ -1889,12 +1889,12 @@ class StrixTUIApp(App[None]):
     def _record_sdk_event(self, agent_id: str, event: Any) -> None:
         self.live_view.ingest_sdk_event(agent_id, event)
 
-    def _add_agent_node(self, agent_data: dict[str, Any]) -> None:
+    def _add_agent_node(self, agent_data: dict[str, Any]) -> bool:
         if len(self.screen_stack) > 1 or self.show_splash:
-            return
+            return False
 
         if not self._is_mounted:
-            return
+            return False
 
         agent_id = agent_data["id"]
         parent_id = agent_data.get("parent_id")
@@ -1903,7 +1903,7 @@ class StrixTUIApp(App[None]):
         try:
             agents_tree = self.query_one("#agents_tree", Tree)
         except (ValueError, Exception):
-            return
+            return False
 
         agent_name_raw = agent_data.get("name", "Agent")
 
@@ -1947,8 +1947,10 @@ class StrixTUIApp(App[None]):
                 self.selected_agent_id = agent_id
 
             self._reorganize_orphaned_agents(agent_id)
+            return True
         except (AttributeError, ValueError, RuntimeError) as e:
             logger.warning(f"Failed to add agent node {agent_id}: {e}")
+            return False
 
     def _copy_node_under(self, node_to_copy: TreeNode[Any], new_parent: TreeNode[Any]) -> None:
         if node_to_copy.data is None:
@@ -2198,8 +2200,23 @@ class StrixTUIApp(App[None]):
     def action_custom_quit(self) -> None:
         if self._scan_thread and self._scan_thread.is_alive():
             self._scan_stop_event.set()
-
             self._scan_thread.join(timeout=1.0)
+
+        # The scan thread is a daemon thread and may be killed before its finally
+        # block runs cleanup. Explicitly delete the container here so it is never
+        # left dangling after the user closes the TUI.
+        scan_loop = self._scan_loop
+        if scan_loop is not None and not scan_loop.is_closed():
+            import asyncio as _asyncio
+
+            _future = _asyncio.run_coroutine_threadsafe(
+                session_manager.cleanup(self.scan_config["run_name"]),
+                scan_loop,
+            )
+            try:
+                _future.result(timeout=10.0)
+            except Exception:
+                logger.debug("Container cleanup on quit raised", exc_info=True)
 
         self.report_state.cleanup()
 
