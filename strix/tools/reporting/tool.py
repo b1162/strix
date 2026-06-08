@@ -513,3 +513,49 @@ async def create_vulnerability_report(
         agent_name=agent_name,
     )
     return json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _do_generate_report() -> dict[str, str]:
+    from strix.report.state import get_global_report_state  # noqa: PLC0415
+    from strix.report.writer import write_jinja_report  # noqa: PLC0415
+
+    state = get_global_report_state()
+    if state is None:
+        return {"success": False, "error": "No active scan state found."}  # type: ignore[return-value]
+
+    run_dir = state.get_run_dir()
+    try:
+        write_jinja_report(run_dir, state.run_record, state.vulnerability_reports)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("generate_final_report failed")
+        return {"success": False, "error": str(exc)}  # type: ignore[return-value]
+
+    report_path = run_dir / "final_report.md"
+    return {  # type: ignore[return-value]
+        "success": True,
+        "path": str(report_path),
+        "message": f"Final report written to {report_path}",
+        "vulnerability_count": str(len(state.vulnerability_reports)),
+    }
+
+
+@function_tool(timeout=30)
+async def generate_final_report(ctx: RunContextWrapper) -> str:
+    """Generate the structured Markdown final report for this scan.
+
+    Renders ``final_report.md`` in the scan run directory. The report
+    includes an executive summary, a findings index sorted by severity,
+    per-vulnerability detail sections (description, impact, PoC, code
+    locations, remediation), methodology, technical analysis, and
+    recommendations.
+
+    Call this only when the user or operator explicitly asks for a report
+    to be written. The file is placed in the shared run directory so it
+    is immediately accessible on the host machine.
+
+    Returns the path to the generated file.
+    """
+    import asyncio  # noqa: PLC0415
+
+    result = await asyncio.to_thread(_do_generate_report)
+    return json.dumps(result, ensure_ascii=False, default=str)
