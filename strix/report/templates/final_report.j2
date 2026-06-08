@@ -1,0 +1,155 @@
+# Penetration Test Report
+
+| | |
+|---|---|
+| **Run** | {{ run_name }} |
+| **Scan date** | {{ scan_date }} |
+| **Generated** | {{ generated_at }} |
+| **Total findings** | {{ total_vulns }} |
+
+---
+
+## Executive Summary
+
+{{ executive_summary }}
+
+---
+
+## Vulnerability Overview
+
+{% set sev_order = ["critical", "high", "medium", "low", "info"] %}
+### Findings by Severity
+
+| Severity | Count |
+|----------|------:|
+{% for sev in sev_order -%}
+| {{ sev | capitalize }} | {{ severity_counts[sev] }} |
+{% endfor %}
+
+### Findings Index
+
+| # | ID | Title | Severity | CVSS | Target | CWE |
+|---|----|-------|----------|-----:|--------|-----|
+{% for v in vulnerabilities -%}
+| {{ loop.index }} | {{ v.id }} | {{ v.title }} | {{ v.severity | upper }} | {{ v.cvss if v.cvss is not none else "—" }} | {{ v.target if v.target else "—" }} | {{ v.cwe if v.cwe else "—" }} |
+{% endfor %}
+
+---
+
+## Methodology
+
+{{ methodology }}
+
+---
+
+## Vulnerability Details
+
+{% for v in vulnerabilities %}
+---
+
+### {{ loop.index }}. [{{ v.severity | upper }}] {{ v.title }}
+
+| Field | Value |
+|-------|-------|
+| **ID** | {{ v.id }} |
+| **Severity** | {{ v.severity | upper }} |
+{% if v.cvss is not none -%}
+| **CVSS** | {{ v.cvss }} |
+{% endif -%}
+{% if v.cwe -%}
+| **CWE** | {{ v.cwe }} |
+{% endif -%}
+{% if v.cve -%}
+| **CVE** | {{ v.cve }} |
+{% endif -%}
+{% if v.target -%}
+| **Target** | {{ v.target }} |
+{% endif -%}
+{% if v.endpoint -%}
+| **Endpoint** | `{{ v.endpoint }}` |
+{% endif -%}
+{% if v.method -%}
+| **Method** | `{{ v.method }}` |
+{% endif -%}
+| **Found** | {{ v.timestamp }} |
+
+{% if v.description %}
+#### Description
+
+{{ v.description }}
+{% endif %}
+
+{% if v.impact %}
+#### Impact
+
+{{ v.impact }}
+{% endif %}
+
+{% if v.technical_analysis %}
+#### Technical Analysis
+
+{{ v.technical_analysis }}
+{% endif %}
+
+{% if v.poc_description or v.poc_script_code %}
+#### Proof of Concept
+
+{% if v.poc_description %}
+{{ v.poc_description }}
+{% endif %}
+{% if v.poc_script_code %}
+```
+{{ v.poc_script_code }}
+```
+{% endif %}
+{% endif %}
+
+{% if v.code_locations %}
+#### Code Locations
+
+{% for loc in v.code_locations %}
+**Location {{ loop.index }}:** `{{ loc.file }}`
+{%- if loc.start_line is not none %} (line{% if loc.end_line and loc.end_line != loc.start_line %}s {{ loc.start_line }}–{{ loc.end_line }}{% else %} {{ loc.start_line }}{% endif %}){% endif %}
+
+{% if loc.label %}{{ loc.label }}{% endif %}
+
+{% if loc.snippet %}
+```
+{{ loc.snippet }}
+```
+{% endif %}
+{% if loc.fix_before or loc.fix_after %}
+**Suggested fix:**
+```diff
+{% if loc.fix_before %}
+{% for line in loc.fix_before.splitlines() %}- {{ line }}
+{% endfor %}
+{% endif %}
+{% if loc.fix_after %}
+{% for line in loc.fix_after.splitlines() %}+ {{ line }}
+{% endfor %}
+{% endif %}
+```
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if v.remediation_steps %}
+#### Remediation
+
+{{ v.remediation_steps }}
+{% endif %}
+
+{% endfor %}
+
+---
+
+## Technical Analysis
+
+{{ technical_analysis }}
+
+---
+
+## Recommendations
+
+{{ recommendations }}

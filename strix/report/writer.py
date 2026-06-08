@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
 from strix.core.paths import run_record_path
 
 
@@ -112,6 +114,51 @@ def _atomic_write_text(path: Path, payload: str) -> None:
         tmp.write(payload)
         tmp_path = Path(tmp.name)
     tmp_path.replace(path)
+
+
+def write_jinja_report(
+    run_dir: Path,
+    run_record: dict[str, Any],
+    vulnerability_reports: list[dict[str, Any]],
+) -> None:
+    """Render the structured Jinja2 final report and write ``final_report.md``."""
+    templates_dir = Path(__file__).parent / "templates"
+    env = Environment(
+        loader=FileSystemLoader(str(templates_dir)),
+        autoescape=select_autoescape(enabled_extensions=(), default_for_string=False),
+        keep_trailing_newline=True,
+    )
+
+    scan_results: dict[str, Any] = run_record.get("scan_results") or {}
+
+    sorted_vulns = sorted(
+        vulnerability_reports,
+        key=lambda r: (_SEVERITY_ORDER.get(str(r.get("severity", "")).lower(), 5), r.get("timestamp", "")),
+    )
+
+    severity_counts: dict[str, int] = {s: 0 for s in ("critical", "high", "medium", "low", "info")}
+    for v in vulnerability_reports:
+        sev = str(v.get("severity", "")).lower()
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+
+    start_time = str(run_record.get("start_time", ""))
+    context: dict[str, Any] = {
+        "run_name": run_record.get("run_name") or run_record.get("run_id", "unknown"),
+        "scan_date": start_time[:10] if start_time else "",
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "executive_summary": scan_results.get("executive_summary", ""),
+        "methodology": scan_results.get("methodology", ""),
+        "technical_analysis": scan_results.get("technical_analysis", ""),
+        "recommendations": scan_results.get("recommendations", ""),
+        "vulnerabilities": sorted_vulns,
+        "severity_counts": severity_counts,
+        "total_vulns": len(vulnerability_reports),
+    }
+
+    rendered = env.get_template("final_report.j2").render(**context)
+    _atomic_write_text(run_dir / "final_report.md", rendered)
+    logger.info("Saved Jinja2 final report to: %s", run_dir / "final_report.md")
 
 
 def render_vulnerability_md(report: dict[str, Any]) -> str:  # noqa: PLR0912, PLR0915

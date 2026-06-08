@@ -14,6 +14,7 @@ from strix.report.usage import LLMUsageLedger
 from strix.report.writer import (
     read_run_record,
     write_executive_report,
+    write_jinja_report,
     write_run_record,
     write_vulnerabilities,
 )
@@ -328,6 +329,9 @@ class ReportState:
 
             if self.vulnerability_reports:
                 write_vulnerabilities(run_dir, self.vulnerability_reports, self._saved_vuln_ids)
+
+            if self.scan_results:
+                write_jinja_report(run_dir, self.run_record, self.vulnerability_reports)
 
             write_run_record(run_dir, self.run_record)
 

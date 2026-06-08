@@ -43,6 +43,7 @@ dependencies = [
   "cvss>=3.2",
   "caido-sdk-client>=0.2.0",
   "pyotp>=2.9.0",
+  "jinja2>=3.1.0",
 ]
 
 [project.scripts]
