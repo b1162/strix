@@ -93,7 +93,7 @@ async def create_or_reuse(
     client, session = await backend(
         image=image,
         manifest=manifest,
-        exposed_ports=(_CONTAINER_CAIDO_PORT,),
+        exposed_ports=(_CONTAINER_CAIDO_PORT, _CONTAINER_CAIDO_PROXY_PORT),
     )
 
     caido_endpoint = await session.resolve_exposed_port(_CONTAINER_CAIDO_PORT)
@@ -102,6 +102,16 @@ async def create_or_reuse(
         host = "127.0.0.1"
     host_caido_url = f"http://{host}:{caido_endpoint.port}"
     logger.debug("Caido host endpoint resolved: %s", host_caido_url)
+
+    proxy_endpoint = await session.resolve_exposed_port(_CONTAINER_CAIDO_PROXY_PORT)
+    proxy_host = proxy_endpoint.host
+    if proxy_host == "0.0.0.0":
+        proxy_host = "127.0.0.1"
+    host_proxy_url = f"http://{proxy_host}:{proxy_endpoint.port}"
+    logger.info(
+        "Caido proxy accessible at %s — point your browser here to capture traffic manually",
+        host_proxy_url,
+    )
 
     caido_client = await bootstrap_caido(
         session,
