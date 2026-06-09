@@ -65,6 +65,12 @@ from strix.tools.exchange.tools import (
     exchange_fingerprint,
     exchange_spray,
 )
+from strix.tools.llm_testing.tools import (
+    llm_fingerprint,
+    llm_extract_system_prompt,
+    llm_injection_scan,
+    llm_probe,
+)
 from strix.tools.otp.tools import get_totp
 from strix.tools.web_search.tool import web_search
 
@@ -373,6 +379,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     exchange_spray,
     exchange_check_cve,
     exchange_autodiscover,
+    llm_probe,
+    llm_fingerprint,
+    llm_extract_system_prompt,
+    llm_injection_scan,
 )
 
 
