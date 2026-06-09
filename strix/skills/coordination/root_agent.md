@@ -82,11 +82,27 @@ Complex findings warrant specialized subagents:
 - Use message passing only when essential (requests/answers, critical handoffs)
 - Prefer batched updates over routine status messages
 
+## Attack Chain Analysis
+
+After all discovery and validation agents complete, review the full finding set for chainable vulnerabilities before calling `finish_scan`:
+
+1. Look for findings where one vulnerability's output enables another (credential leak → auth bypass, SSRF → cloud metadata → RCE, IDOR → PII bulk export)
+2. If chains exist, spawn a dedicated **Chain Analysis Agent** with `skills=["vuln_chain"]` to document the end-to-end attack scenario and file a `[CHAIN]` report
+3. The chain report supplements — it does not replace — individual vulnerability reports
+
+## Report Generation
+
+- `generate_final_report` writes `final_report.md` to the shared run directory; call it only when the user explicitly requests a written report
+- The report is pre-populated from all filed `create_vulnerability_report` calls — no extra aggregation needed
+- Call `generate_final_report` before `finish_scan` if a report was requested
+
 ## Completion
 
 When all agents report completion:
 
 1. Collect and deduplicate findings across agents
-2. Assess overall security posture
-3. Compile executive summary with prioritized recommendations
-4. Invoke finish tool with final report
+2. Run chain analysis if multiple related findings exist
+3. Generate written report if requested (`generate_final_report`)
+4. Assess overall security posture
+5. Compile executive summary with prioritized recommendations
+6. Invoke `finish_scan` with the four narrative sections

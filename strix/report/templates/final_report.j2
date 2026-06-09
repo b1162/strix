@@ -31,7 +31,7 @@
 | # | ID | Title | Severity | CVSS | Target | CWE |
 |---|----|-------|----------|-----:|--------|-----|
 {% for v in vulnerabilities -%}
-| {{ loop.index }} | {{ v.id }} | {{ v.title }} | {{ v.severity | upper }} | {{ v.cvss if v.cvss is not none else "—" }} | {{ v.target if v.target else "—" }} | {{ v.cwe if v.cwe else "—" }} |
+| {{ loop.index }} | {{ v.id }} | {{ v.title }} | {{ v.severity | upper }} | {{ v.cvss | default("—") }} | {{ v.target | default("—") }} | {{ v.cwe | default("—") }} |
 {% endfor %}
 
 ---
@@ -53,7 +53,7 @@
 |-------|-------|
 | **ID** | {{ v.id }} |
 | **Severity** | {{ v.severity | upper }} |
-{% if v.cvss is not none -%}
+{% if v.cvss is defined and v.cvss is not none -%}
 | **CVSS** | {{ v.cvss }} |
 {% endif -%}
 {% if v.cwe -%}
@@ -109,7 +109,7 @@
 
 {% for loc in v.code_locations %}
 **Location {{ loop.index }}:** `{{ loc.file }}`
-{%- if loc.start_line is not none %} (line{% if loc.end_line and loc.end_line != loc.start_line %}s {{ loc.start_line }}–{{ loc.end_line }}{% else %} {{ loc.start_line }}{% endif %}){% endif %}
+{%- if loc.start_line is defined and loc.start_line is not none %} (line{% if loc.end_line and loc.end_line != loc.start_line %}s {{ loc.start_line }}–{{ loc.end_line }}{% else %} {{ loc.start_line }}{% endif %}){% endif %}
 
 {% if loc.label %}{{ loc.label }}{% endif %}
 

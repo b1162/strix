@@ -515,27 +515,27 @@ async def create_vulnerability_report(
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
-def _do_generate_report() -> dict[str, str]:
+def _do_generate_report() -> dict[str, Any]:
     from strix.report.state import get_global_report_state  # noqa: PLC0415
     from strix.report.writer import write_jinja_report  # noqa: PLC0415
 
     state = get_global_report_state()
     if state is None:
-        return {"success": False, "error": "No active scan state found."}  # type: ignore[return-value]
+        return {"success": False, "error": "No active scan state found."}
 
     run_dir = state.get_run_dir()
     try:
         write_jinja_report(run_dir, state.run_record, state.vulnerability_reports)
     except Exception as exc:  # noqa: BLE001
         logger.exception("generate_final_report failed")
-        return {"success": False, "error": str(exc)}  # type: ignore[return-value]
+        return {"success": False, "error": str(exc)}
 
     report_path = run_dir / "final_report.md"
-    return {  # type: ignore[return-value]
+    return {
         "success": True,
         "path": str(report_path),
         "message": f"Final report written to {report_path}",
-        "vulnerability_count": str(len(state.vulnerability_reports)),
+        "vulnerability_count": len(state.vulnerability_reports),
     }
 
 

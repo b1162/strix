@@ -28,7 +28,16 @@ Before executing *any* spawned task or performing complex manual testing, you mu
 1.  **Step 1: Reconnaissance & Target Mapping** — Active port scanning, endpoint fuzzing, or code triage.
 2.  **Step 2: Injection & Vector Probing** — Injecting targeted test payloads.
 3.  **Step 3: Verification** — Retrieving response tokens, error logs, or OOB interactions.
-4.  **Step 5: Exploitation & Proof of Concept** — Creating an actionable, reproducible exploit script.
-5.  **Step 6: Remediation Writing** — Formulating the corrective patch.
+4.  **Step 4: Exploitation & Proof of Concept** — Creating an actionable, reproducible exploit script.
+5.  **Step 5: Chain Analysis** — After all individual findings are confirmed, check for chainable vulnerabilities. If multiple findings can be linked (output of one enables the next), spawn a specialist with `skills=["vuln_chain"]` to document and file the `[CHAIN]` report.
+6.  **Step 6: Remediation Writing** — Formulating the corrective patch per finding (Adviser Specialist).
+7.  **Step 7: Report Generation** — If the operator requested a written report, call `generate_final_report` before invoking the lifecycle tool.
 
 Enforce that specialists follow their step-by-step plans strictly. If a specialist drifts or encounters a roadblock, pause and re-generate the plan.
+
+## 3. MFA-Protected Targets
+
+If a target requires TOTP/OTP authentication during testing:
+- Use `get_totp(secret_or_path)` to generate the current code (pass either the raw Base32 secret or a path to a SOPS-encrypted secrets file)
+- Check `valid_seconds_remaining` in the response — submit requests before the code expires
+- For automated sprays, refresh the code at the start of each auth attempt

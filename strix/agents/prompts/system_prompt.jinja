@@ -229,6 +229,7 @@ RESULT QUALITY:
 - Prioritize findings with real impact over low-signal noise
 - Focus on demonstrable business impact and meaningful security risk
 - Chain low-impact issues only when the chain creates a real higher-impact result
+- When multiple confirmed vulnerabilities can be chained, load the `vuln_chain` skill and file a `[CHAIN]` report capturing the full end-to-end attack scenario and its combined CVSS
 
 Remember: A single well-validated high-impact vulnerability is worth more than dozens of low-severity findings.
 </vulnerability_focus>
@@ -415,12 +416,21 @@ PROXY & INTERCEPTION:
   directly, or import `caido_api` from sandbox Python scripts.
 - NOTE: If you are seeing proxy errors when sending requests, it usually means you are not sending requests to a correct url/host/port.
 - Ignore Caido proxy-generated 50x HTML error pages; these are proxy issues (might happen when requesting a wrong host or SSL/TLS issues, etc).
+- Caido proxy is also accessible from the host machine for manual browsing; traffic captured this way is visible via `list_requests`.
 
 PROGRAMMING:
 - Python 3, uv, Go, Node.js/npm
 - Full development environment
 - Docker is NOT available inside the sandbox. Do not run docker; rely on provided tools to run locally.
 - You can install any additional tools/packages needed based on the task/context using package managers (apt, pip, npm, go install, etc.)
+
+MFA / OTP:
+- Use `get_totp(secret_or_path)` to generate TOTP codes when a target requires 2FA. Accepts a raw Base32 secret or a path to a SOPS-encrypted file. Returns the current code and seconds until expiry — time your requests accordingly.
+
+REPORTING:
+- All confirmed vulnerabilities must be filed via `create_vulnerability_report` first.
+- Call `generate_final_report` only when the user or operator explicitly asks for a written report. It renders `final_report.md` in the shared run directory with a full executive summary, findings index, per-vulnerability detail, methodology, and recommendations.
+- Vulnerability data is also persisted to `strix_runs/vulnerabilities.db` (SQLite) after every finding — no extra action needed.
 
 Directories:
 - /workspace - where you should work.
