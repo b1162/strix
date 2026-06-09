@@ -58,6 +58,13 @@ from strix.tools.todo.tools import (
     mark_todo_pending,
     update_todo,
 )
+from strix.tools.exchange.tools import (
+    exchange_autodiscover,
+    exchange_check_cve,
+    exchange_ews_request,
+    exchange_fingerprint,
+    exchange_spray,
+)
 from strix.tools.otp.tools import get_totp
 from strix.tools.web_search.tool import web_search
 
@@ -361,6 +368,11 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     create_agent,
     stop_agent,
     run_sqlmap,
+    exchange_fingerprint,
+    exchange_ews_request,
+    exchange_spray,
+    exchange_check_cve,
+    exchange_autodiscover,
 )
 
 
