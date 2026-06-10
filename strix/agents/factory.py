@@ -31,7 +31,9 @@ from strix.tools.graphiti.tools import (
     search_graph,
     view_graph_summary,
 )
+from strix.tools.llm_scanner.tool import run_llm_chatbot_scan
 from strix.tools.load_skill.tool import load_skill
+from strix.tools.mcp_llm_sec.tool import run_mcp_llm_sec
 from strix.tools.notes.tools import (
     create_note,
     delete_note,
@@ -39,6 +41,7 @@ from strix.tools.notes.tools import (
     list_notes,
     update_note,
 )
+from strix.tools.otp.tools import get_totp
 from strix.tools.proxy.tools import (
     list_requests,
     list_sitemap,
@@ -58,7 +61,6 @@ from strix.tools.todo.tools import (
     mark_todo_pending,
     update_todo,
 )
-from strix.tools.otp.tools import get_totp
 from strix.tools.web_search.tool import web_search
 
 
@@ -360,6 +362,8 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     create_agent,
     stop_agent,
     run_sqlmap,
+    run_llm_chatbot_scan,
+    run_mcp_llm_sec,
 )
 
 
