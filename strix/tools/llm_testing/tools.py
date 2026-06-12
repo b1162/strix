@@ -650,3 +650,353 @@ async def llm_injection_scan(
         ensure_ascii=False,
         default=str,
     )
+
+
+# ── llm_promptfoo_scan ────────────────────────────────────────────────────────
+
+# Default plugins that work well for security assessments and don't require
+# expensive generator models. Static-dataset plugins are noted.
+_DEFAULT_PLUGINS = [
+    "prompt-extraction",          # system prompt disclosure
+    "indirect-prompt-injection",  # indirect injection via data sources
+    "system-prompt-override",     # direct override attempts
+    "excessive-agency",           # unauthorized tool/action calls
+    "debug-access",               # debug interface exposure
+    "pii:direct",                 # direct PII exposure
+    "pii:social",                 # social-engineering PII extraction
+    "cross-session-leak",         # cross-user context leakage
+    "data-exfil",                 # data exfiltration via URLs/images
+    "rbac",                       # role-based access control bypass
+    "bola",                       # broken object-level authorization
+    "bfla",                       # broken function-level authorization
+    "ssrf",                       # server-side request forgery
+    "shell-injection",            # shell command injection via LLM
+    "sql-injection",              # SQL injection via LLM output
+    "hallucination",              # false/fabricated information
+    "overreliance",               # over-trusting user instructions
+    "contracts",                  # unauthorized commitments
+    "competitors",                # brand/competitor mentions
+    "model-identification",       # model identity leakage
+    "tool-discovery",             # tool enumeration
+    "ascii-smuggling",            # Unicode tag injection
+    "harmful:cybercrime",         # cybercrime assistance
+    "harmful:cybercrime:malicious-code",  # malware generation
+    "rag-document-exfiltration",  # RAG document leakage
+    "rag-poisoning",              # RAG retrieval manipulation
+]
+
+_SECURITY_PLUGINS = [
+    "prompt-extraction",
+    "indirect-prompt-injection",
+    "system-prompt-override",
+    "excessive-agency",
+    "debug-access",
+    "ssrf",
+    "shell-injection",
+    "sql-injection",
+    "rbac",
+    "bola",
+    "bfla",
+    "tool-discovery",
+    "data-exfil",
+    "ascii-smuggling",
+    "harmful:cybercrime:malicious-code",
+]
+
+_PRIVACY_PLUGINS = [
+    "pii:direct",
+    "pii:api-db",
+    "pii:session",
+    "pii:social",
+    "cross-session-leak",
+    "rag-document-exfiltration",
+]
+
+
+def _build_promptfoo_config(
+    *,
+    endpoint_url: str,
+    llm_format: str,
+    model: str,
+    auth_type: str,
+    auth_value: str | None,
+    custom_request_transform: str | None,
+    custom_response_transform: str | None,
+    plugins: list[str],
+    purpose: str,
+    num_tests: int,
+    generator_api_key: str | None,
+    verify_ssl: bool,
+) -> str:
+    """Build a promptfooconfig.yaml string for a red team run."""
+
+    # ── provider / target definition ──────────────────────────────────────────
+    if llm_format == "openai":
+        provider_id = f"openai:chat:{model}"
+        provider_config_lines = [f"      apiBaseUrl: {endpoint_url}"]
+        if auth_value:
+            provider_config_lines.append(f"      apiKey: {auth_value}")
+        else:
+            provider_config_lines.append("      apiKey: dummy")
+        if not verify_ssl:
+            provider_config_lines.append("      # ssl_verify: false  # set via env OPENAI_SSL_VERIFY=0")
+        provider_section = f"""providers:
+  - id: {provider_id}
+    config:
+{chr(10).join(provider_config_lines)}
+"""
+
+    elif llm_format == "anthropic":
+        provider_id = f"anthropic:messages:{model}"
+        api_key = auth_value or "dummy"
+        provider_section = f"""providers:
+  - id: {provider_id}
+    config:
+      apiKey: {api_key}
+"""
+
+    else:  # custom HTTP
+        headers_yaml = ""
+        if auth_type == "bearer" and auth_value:
+            headers_yaml = f"\n        Authorization: \"Bearer {auth_value}\""
+        elif auth_type == "api-key" and auth_value:
+            headers_yaml = f"\n        x-api-key: \"{auth_value}\""
+
+        body_transform = custom_request_transform or '{"message": "{{prompt}}"}'
+        resp_transform = custom_response_transform or "json.response"
+
+        provider_section = f"""providers:
+  - id: http
+    config:
+      url: {endpoint_url}
+      method: POST
+      headers:
+        Content-Type: application/json{headers_yaml}
+      body: '{body_transform}'
+      transformResponse: "{resp_transform}"
+"""
+
+    # ── plugins list ──────────────────────────────────────────────────────────
+    plugins_yaml = "\n".join(f"    - {p}" for p in plugins)
+
+    # ── generator provider ───────────────────────────────────────────────────
+    generator_section = ""
+    if generator_api_key:
+        generator_section = f"""
+  provider: openai:chat:gpt-4o
+"""
+
+    # ── full config ───────────────────────────────────────────────────────────
+    purpose_escaped = purpose.replace('"', '\\"')
+    return f"""{provider_section}
+redteam:
+  purpose: "{purpose_escaped}"
+  numTests: {num_tests}{generator_section}
+  plugins:
+{plugins_yaml}
+  strategies:
+    - basic
+    - jailbreak
+    - prompt-injection
+"""
+
+
+@function_tool(timeout=600, strict_mode=False)
+async def llm_promptfoo_scan(
+    ctx: RunContextWrapper,
+    endpoint_url: str,
+    purpose: str,
+    llm_format: LLMFormat = "openai",
+    model: str = "gpt-4",
+    auth_type: AuthType = "none",
+    auth_value: str | None = None,
+    custom_request_transform: str | None = None,
+    custom_response_transform: str | None = None,
+    plugins: list[str] | None = None,
+    plugin_preset: Literal["default", "security", "privacy", "all"] = "security",
+    num_tests: int = 5,
+    generator_api_key: str | None = None,
+    verify_ssl: bool = True,
+    timeout_seconds: int = 540,
+) -> str:
+    """Run a full red team scan against an LLM endpoint using promptfoo.
+
+    promptfoo is a comprehensive LLM red teaming framework that generates adversarial
+    test cases using specialized uncensored attack models, then evaluates them against
+    the target. It covers 100+ attack plugins across OWASP LLM Top 10 categories.
+
+    **Workflow:** generates attack probes → evaluates them against the target → returns
+    pass/fail results with detailed findings.
+
+    **Provider/format:**
+    - "openai"     OpenAI-compatible API (sets apiBaseUrl + model)
+    - "anthropic"  Anthropic Messages API (requires ANTHROPIC_API_KEY in auth_value)
+    - "custom"     Custom HTTP endpoint (use custom_request_transform + custom_response_transform)
+
+    **Plugin presets** (use `plugins` param to override with specific list):
+    - "security"   Core injection/jailbreak/tool-abuse plugins (default — ~15 plugins)
+    - "privacy"    PII, cross-session, RAG exfiltration plugins (~6 plugins)
+    - "default"    Balanced security + privacy set (~25 plugins)
+    - "all"        Every available plugin (slow, ~100+ plugins)
+
+    **Key security plugins:**
+    - prompt-extraction, system-prompt-override, indirect-prompt-injection
+    - excessive-agency, debug-access, tool-discovery
+    - ssrf, shell-injection, sql-injection, bola, bfla, rbac
+    - data-exfil, pii:direct/social/api-db, cross-session-leak
+    - rag-document-exfiltration, rag-poisoning
+    - ascii-smuggling, harmful:cybercrime:malicious-code
+
+    **Generator API key:** promptfoo uses an attack model (default: GPT-4o) to generate
+    dynamic adversarial probes. Pass an OpenAI API key via `generator_api_key` for best
+    coverage. Without it, only static-dataset plugins will run.
+
+    Args:
+        endpoint_url: Target LLM endpoint URL.
+        purpose: Description of the chatbot's purpose/context (improves probe quality).
+                 E.g. "Customer service assistant for Acme Corp banking portal".
+        llm_format: "openai", "anthropic", or "custom".
+        model: Model ID for API requests (e.g. "gpt-4o", "claude-3-5-sonnet-20241022").
+        auth_type: Auth method ("bearer", "api-key", "none").
+        auth_value: Auth token / API key for the target.
+        custom_request_transform: JSON template for custom format (e.g. '{"question":"{{prompt}}"}').
+        custom_response_transform: Dot-path to extract text from response (e.g. "json.data.answer").
+        plugins: Explicit list of plugin IDs to run (overrides preset).
+        plugin_preset: "security" (default), "privacy", "default", or "all".
+        num_tests: Test cases generated per plugin (default 5; increase for thoroughness).
+        generator_api_key: OpenAI API key for adversarial probe generation.
+        verify_ssl: Verify TLS certificates.
+        timeout_seconds: Maximum scan duration in seconds (default 540).
+    """
+    session = _ctx_session(ctx)
+    if session is None:
+        return _no_session()
+
+    # Resolve plugin list
+    if plugins:
+        selected_plugins = plugins
+    elif plugin_preset == "security":
+        selected_plugins = _SECURITY_PLUGINS
+    elif plugin_preset == "privacy":
+        selected_plugins = _PRIVACY_PLUGINS
+    elif plugin_preset == "all":
+        selected_plugins = _DEFAULT_PLUGINS + _PRIVACY_PLUGINS
+    else:
+        selected_plugins = _DEFAULT_PLUGINS
+
+    # Build config YAML
+    config_yaml = _build_promptfoo_config(
+        endpoint_url=endpoint_url,
+        llm_format=llm_format,
+        model=model,
+        auth_type=auth_type,
+        auth_value=auth_value,
+        custom_request_transform=custom_request_transform,
+        custom_response_transform=custom_response_transform,
+        plugins=selected_plugins,
+        purpose=purpose,
+        num_tests=num_tests,
+        generator_api_key=generator_api_key,
+        verify_ssl=verify_ssl,
+    )
+
+    # Sanitize purpose for directory name
+    safe_name = re.sub(r"[^a-z0-9]", "_", purpose.lower())[:30]
+    work_dir = f"/tmp/pf_scan_{safe_name}"
+
+    # Write config and run in sandbox
+    setup_cmd = (
+        f"mkdir -p {shlex.quote(work_dir)} && "
+        f"cat > {shlex.quote(work_dir + '/promptfooconfig.yaml')} << 'PFEOF'\n"
+        f"{config_yaml}\nPFEOF"
+    )
+    await _exec(session, setup_cmd, timeout=10.0)
+
+    # Set env vars for generator API key and HOME override
+    env_prefix = f"HOME={shlex.quote(work_dir + '/.home')} "
+    if generator_api_key:
+        env_prefix += f"OPENAI_API_KEY={shlex.quote(generator_api_key)} "
+
+    # Run promptfoo redteam: generate + eval
+    run_cmd = (
+        f"mkdir -p {shlex.quote(work_dir + '/.home')} && "
+        f"cd {shlex.quote(work_dir)} && "
+        f"{env_prefix}"
+        f"npx --yes promptfoo@latest redteam run "
+        f"--config {shlex.quote(work_dir + '/promptfooconfig.yaml')} "
+        f"--output {shlex.quote(work_dir + '/redteam_tests.yaml')} "
+        f"--no-progress-bar --force 2>&1"
+    )
+
+    logger.info("llm_promptfoo_scan: running promptfoo redteam scan against %s", endpoint_url)
+    stdout, stderr, exit_code = await _exec(session, run_cmd, timeout=float(timeout_seconds))
+
+    # Also try to get structured JSON output via eval on generated tests
+    results_path = work_dir + "/results.json"
+    eval_cmd = (
+        f"cd {shlex.quote(work_dir)} && "
+        f"{env_prefix}"
+        f"npx --yes promptfoo@latest eval "
+        f"--config {shlex.quote(work_dir + '/promptfooconfig.yaml')} "
+        f"--output {shlex.quote(results_path)} "
+        f"--no-progress-bar --no-table --no-cache 2>&1 | tail -20"
+    )
+    eval_out, _, eval_code = await _exec(session, eval_cmd, timeout=float(timeout_seconds // 2))
+
+    # Parse JSON results if available
+    findings: list[dict[str, Any]] = []
+    summary: dict[str, Any] = {}
+    read_cmd = f"cat {shlex.quote(results_path)} 2>/dev/null | head -c 200000"
+    json_out, _, _ = await _exec(session, read_cmd, timeout=10.0)
+    if json_out.strip():
+        try:
+            data = json.loads(json_out)
+            results_list = data.get("results", {})
+            if isinstance(results_list, dict):
+                results_list = results_list.get("results", [])
+            for r in results_list[:200]:
+                if not isinstance(r, dict):
+                    continue
+                passed = r.get("success", r.get("gradingResult", {}).get("pass", None))
+                if passed is False:  # failed = vulnerability found
+                    plugin = r.get("metadata", {}).get("pluginId") or r.get("testCase", {}).get("metadata", {}).get("pluginId", "unknown")
+                    findings.append(
+                        {
+                            "plugin": plugin,
+                            "prompt": (r.get("prompt", {}).get("raw") or "")[:200],
+                            "response": (r.get("response", {}).get("output") or "")[:300],
+                            "reason": (r.get("gradingResult", {}).get("reason") or "")[:200],
+                        }
+                    )
+            total = len(results_list)
+            passed_count = sum(1 for r in results_list if r.get("success", False))
+            summary = {
+                "total": total,
+                "passed": passed_count,
+                "failed": total - passed_count,
+            }
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
+    # Extract summary stats from stdout if JSON parse failed
+    if not summary:
+        pass_match = re.search(r"(\d+)\s+passed", stdout, re.I)
+        fail_match = re.search(r"(\d+)\s+failed", stdout, re.I)
+        summary = {
+            "passed": int(pass_match.group(1)) if pass_match else None,
+            "failed": int(fail_match.group(1)) if fail_match else None,
+        }
+
+    return json.dumps(
+        {
+            "success": exit_code == 0 or bool(findings) or bool(summary.get("total")),
+            "exit_code": exit_code,
+            "plugins_run": selected_plugins,
+            "summary": summary,
+            "findings_count": len(findings),
+            "findings": findings[:50],
+            "stdout_tail": stdout[-3000:] if stdout else "",
+        },
+        ensure_ascii=False,
+        default=str,
+    )

@@ -70,6 +70,7 @@ from strix.tools.llm_testing.tools import (
     llm_extract_system_prompt,
     llm_injection_scan,
     llm_probe,
+    llm_promptfoo_scan,
 )
 from strix.tools.otp.tools import get_totp
 from strix.tools.web_search.tool import web_search
@@ -383,6 +384,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     llm_fingerprint,
     llm_extract_system_prompt,
     llm_injection_scan,
+    llm_promptfoo_scan,
 )
 
 
